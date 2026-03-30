@@ -1,0 +1,29 @@
+{
+  "name": "cordova-plugin-usb-uvc-camera",
+  "version": "0.1.0",
+  "description": "Cordova plugin for direct USB-UVC webcams on Android kiosks",
+  "main": "www/usbUvcCamera.js",
+  "keywords": [
+    "cordova",
+    "plugin",
+    "camera",
+    "usb",
+    "uvc",
+    "android",
+    "kiosk"
+  ],
+  "cordova": {
+    "id": "cordova-plugin-usb-uvc-camera",
+    "platforms": [
+      "android"
+    ]
+  },
+  "engines": {
+    "cordovaDependencies": {
+      ">=9.0.0": {
+        "cordova-android": ">=9.0.0"
+      }
+    }
+  },
+  "license": "MIT"
+}

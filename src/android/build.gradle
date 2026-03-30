@@ -1,0 +1,20 @@
+android {
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 34
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    // Phase 1 validated candidate:
+    // JitPack exposes this coordinate, while newer README examples and 3.3.x tags
+    // have public reports of resolution failures.
+    implementation 'com.github.jiangdongguo:AndroidUSBCamera:3.2.7'
+}

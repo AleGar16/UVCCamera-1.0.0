@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        id="cordova-plugin-usb-uvc-camera"
+        version="0.1.0">
+    <name>USB UVC Camera</name>
+    <description>Direct USB-UVC camera plugin for Android kiosks</description>
+    <license>MIT</license>
+    <keywords>cordova,camera,usb,uvc,android,kiosk</keywords>
+
+    <engines>
+        <engine name="cordova" version=">=9.0.0" />
+        <engine name="cordova-android" version=">=9.0.0" />
+    </engines>
+
+    <js-module src="www/usbUvcCamera.js" name="UsbUvcCamera">
+        <clobbers target="navigator.usbUvcCamera" />
+    </js-module>
+
+    <platform name="android">
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="UsbUvcCamera">
+                <param name="android-package" value="com.cordova.plugin.UsbUvcCamera" />
+            </feature>
+        </config-file>
+
+        <config-file target="AndroidManifest.xml" parent="/*">
+            <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+            <uses-permission android:name="android.permission.CAMERA" />
+        </config-file>
+
+        <source-file src="src/android/UsbUvcCamera.java" target-dir="src/com/cordova/plugin" />
+        <framework src="src/android/build.gradle" custom="true" type="gradleReference" />
+        <resource-file src="src/android/res/xml/device_filter.xml" target="res/xml/device_filter.xml" />
+    </platform>
+</plugin>
