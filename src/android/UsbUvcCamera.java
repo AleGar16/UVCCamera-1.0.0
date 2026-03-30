@@ -12,6 +12,7 @@ import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
@@ -41,6 +42,8 @@ import java.util.Locale;
 
 public class UsbUvcCamera extends CordovaPlugin {
     private static final String TAG = "UsbUvcCamera";
+    private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
+    private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private UsbDevice currentDevice;
@@ -53,6 +56,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean previewSurfaceReady = false;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void pluginInitialize() {
@@ -156,11 +160,6 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean takePhoto(CallbackContext callbackContext) {
-        if (currentCamera == null || !currentCamera.isCameraOpened()) {
-            callbackContext.error("USB UVC camera not opened");
-            return true;
-        }
-
         photoCallback = callbackContext;
         String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
         File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
@@ -174,6 +173,26 @@ public class UsbUvcCamera extends CordovaPlugin {
             storageDir.mkdirs();
         }
         File photoFile = new File(storageDir, fileName);
+
+        attemptTakePhoto(photoFile, 1);
+        return true;
+    }
+
+    private void attemptTakePhoto(File photoFile, int attempt) {
+        if (currentCamera == null) {
+            failPendingPhoto("USB UVC camera not initialized");
+            return;
+        }
+
+        if (!currentCamera.isCameraOpened()) {
+            if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
+                failPendingPhoto("USB UVC camera not opened");
+                return;
+            }
+            Log.d(TAG, "Camera not ready for photo yet, retry attempt " + attempt);
+            mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            return;
+        }
 
         currentCamera.captureImage(new ICaptureCallBack() {
             @Override
@@ -197,7 +216,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             }
         }, photoFile.getAbsolutePath());
-        return true;
+    }
+
+    private void failPendingPhoto(String message) {
+        if (photoCallback != null) {
+            photoCallback.error(message);
+            photoCallback = null;
+        }
     }
 
     private boolean listUsbDevices(CallbackContext callbackContext) {
