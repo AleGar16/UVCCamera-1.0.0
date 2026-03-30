@@ -13,7 +13,6 @@ repositories {
 }
 
 dependencies {
-    // 3.2.8 removes demo-oriented transitive dependencies from libausbc,
-    // which helps avoid resolution failures on restricted build servers.
-    implementation 'com.github.jiangdongguo:AndroidUSBCamera:3.2.8'
+    // Use the published libausbc module directly.
+    implementation 'com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.2.8'
 }
