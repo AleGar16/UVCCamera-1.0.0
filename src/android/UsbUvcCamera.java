@@ -56,6 +56,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean previewSurfaceReady = false;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
+    private boolean openingCamera = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -116,6 +117,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                     return true;
                 }
                 openCallback = callbackContext;
+                openingCamera = true;
                 ensureCameraClient();
                 if (cameraClient != null) {
                     safeRegisterCameraClient();
@@ -142,6 +144,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight);
 
         openCallback = callbackContext;
+        openingCamera = true;
         ensureCameraClient();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
 
@@ -306,6 +309,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             public void onDetachDec(UsbDevice device) {
                 Log.d(TAG, "USB detach: " + (device != null ? device.getDeviceName() : "null"));
                 if (device != null && currentDevice != null && device.getDeviceId() == currentDevice.getDeviceId()) {
+                    if (openingCamera) {
+                        Log.w(TAG, "Ignoring detach callback while camera is opening");
+                        return;
+                    }
                     releaseCamera();
                 }
             }
@@ -330,12 +337,17 @@ public class UsbUvcCamera extends CordovaPlugin {
             public void onDisConnectDec(UsbDevice device, USBMonitor.UsbControlBlock ctrlBlock) {
                 Log.d(TAG, "USB disconnect callback: " + (device != null ? device.getDeviceName() : "null"));
                 if (device != null && currentDevice != null && device.getDeviceId() == currentDevice.getDeviceId()) {
+                    if (openingCamera) {
+                        Log.w(TAG, "Ignoring disconnect callback while camera is opening");
+                        return;
+                    }
                     releaseCamera();
                 }
             }
 
             @Override
             public void onCancelDev(UsbDevice device) {
+                openingCamera = false;
                 if (openCallback != null) {
                     openCallback.error("USB permission request canceled");
                     openCallback = null;
@@ -444,6 +456,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 public void onCameraState(MultiCameraClient.Camera self, State code, String msg) {
                     Log.i(TAG, "onCameraState code=" + code + ", msg=" + msg);
                     if (code == State.OPENED) {
+                        openingCamera = false;
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
                             try {
@@ -460,11 +473,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                             openCallback = null;
                         }
                     } else if (code == State.ERROR) {
+                        openingCamera = false;
                         if (openCallback != null) {
                             openCallback.error(msg != null ? msg : "Failed to open UVC camera");
                             openCallback = null;
                         }
                     } else if (code == State.CLOSED) {
+                        openingCamera = false;
                         Log.d(TAG, "UVC camera closed: " + msg);
                     }
                 }
@@ -479,6 +494,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             pendingOpenDevice = null;
             pendingCtrlBlock = null;
         } catch (Exception e) {
+            openingCamera = false;
             Log.e(TAG, "Failed to open connected UVC device", e);
             if (openCallback != null) {
                 openCallback.error("Failed to open connected UVC device: " + e.getMessage());
@@ -498,6 +514,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             currentCamera = null;
         }
+        openingCamera = false;
     }
 
     private void maybeOpenPendingDevice() {

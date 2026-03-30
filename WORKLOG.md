@@ -144,6 +144,17 @@ Formato usato:
 - Stato:
   completato, in attesa di log runtime.
 
+### 10. Mitigazione race su disconnect durante open
+
+- Richiesta/problema:
+  dai log e' emerso che durante `open()` arrivava un `USB disconnect callback` spurio che causava `releaseCamera()` prima del completamento vero dell'apertura.
+- Modifica fatta:
+  e' stato introdotto il flag `openingCamera` e i callback `onDetachDec` / `onDisConnectDec` ora ignorano detach/disconnect del device selezionato mentre l'apertura e' ancora in corso.
+- Motivo tecnico:
+  evitare che `currentCamera` venga azzerata subito prima di `State.OPENED`, generando reopen inutili su `takePhoto()` e warning di `Surface` / `UsbDeviceConnection` non rilasciate.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
