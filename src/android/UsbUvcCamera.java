@@ -1,11 +1,17 @@
 package com.cordova.plugin;
 
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
@@ -26,6 +32,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
@@ -68,9 +75,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     public void onResume(boolean multitasking) {
         super.onResume(multitasking);
         if (cameraClient != null) {
-            try {
-                cameraClient.register();
-            } catch (Exception ignored) {}
+            safeRegisterCameraClient();
         }
     }
 
@@ -109,7 +114,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 openCallback = callbackContext;
                 ensureCameraClient();
                 if (cameraClient != null) {
-                    cameraClient.register();
+                    safeRegisterCameraClient();
                     cameraClient.requestPermission(currentDevice);
                 }
                 return true;
@@ -142,7 +147,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         currentDevice = device;
         if (cameraClient != null) {
-            cameraClient.register();
+            safeRegisterCameraClient();
             cameraClient.requestPermission(device);
         } else {
             callbackContext.error("MultiCameraClient not initialized");
@@ -290,7 +295,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             }
         });
-        cameraClient.register();
+        safeRegisterCameraClient();
     }
 
     private void ensurePreviewView() {
@@ -463,5 +468,79 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
         return false;
+    }
+
+    private void safeRegisterCameraClient() {
+        if (cameraClient == null) {
+            return;
+        }
+        try {
+            cameraClient.register();
+        } catch (SecurityException securityException) {
+            Log.w(TAG, "Default USBMonitor.register failed, trying Android 13+ compatible registration", securityException);
+            tryManualUsbMonitorRegister();
+        } catch (Exception exception) {
+            Log.w(TAG, "cameraClient.register failed", exception);
+        }
+    }
+
+    private void tryManualUsbMonitorRegister() {
+        try {
+            Field usbMonitorField = MultiCameraClient.class.getDeclaredField("mUsbMonitor");
+            usbMonitorField.setAccessible(true);
+            Object usbMonitor = usbMonitorField.get(cameraClient);
+            if (!(usbMonitor instanceof USBMonitor)) {
+                Log.w(TAG, "Unable to access USBMonitor for manual registration");
+                return;
+            }
+
+            USBMonitor monitor = (USBMonitor) usbMonitor;
+            Context context = cordova.getActivity();
+
+            Field permissionIntentField = USBMonitor.class.getDeclaredField("mPermissionIntent");
+            permissionIntentField.setAccessible(true);
+            PendingIntent permissionIntent = (PendingIntent) permissionIntentField.get(monitor);
+
+            Field actionField = USBMonitor.class.getDeclaredField("ACTION_USB_PERMISSION");
+            actionField.setAccessible(true);
+            String actionUsbPermission = (String) actionField.get(monitor);
+
+            if (permissionIntent == null) {
+                int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_IMMUTABLE : 0;
+                permissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(actionUsbPermission), flags);
+                permissionIntentField.set(monitor, permissionIntent);
+            }
+
+            Field receiverField = USBMonitor.class.getDeclaredField("mUsbReceiver");
+            receiverField.setAccessible(true);
+            BroadcastReceiver usbReceiver = (BroadcastReceiver) receiverField.get(monitor);
+
+            IntentFilter filter = new IntentFilter(actionUsbPermission);
+            filter.addAction(USBMonitor.ACTION_USB_DEVICE_ATTACHED);
+            filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(usbReceiver, filter);
+            }
+
+            Field deviceCountsField = USBMonitor.class.getDeclaredField("mDeviceCounts");
+            deviceCountsField.setAccessible(true);
+            deviceCountsField.setInt(monitor, 0);
+
+            Field asyncHandlerField = USBMonitor.class.getDeclaredField("mAsyncHandler");
+            asyncHandlerField.setAccessible(true);
+            Handler asyncHandler = (Handler) asyncHandlerField.get(monitor);
+
+            Field deviceCheckRunnableField = USBMonitor.class.getDeclaredField("mDeviceCheckRunnable");
+            deviceCheckRunnableField.setAccessible(true);
+            Runnable deviceCheckRunnable = (Runnable) deviceCheckRunnableField.get(monitor);
+
+            asyncHandler.postDelayed(deviceCheckRunnable, 1000);
+            Log.i(TAG, "Manual USBMonitor registration completed");
+        } catch (Exception reflectionException) {
+            Log.e(TAG, "Manual USBMonitor registration failed", reflectionException);
+        }
     }
 }
