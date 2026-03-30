@@ -120,6 +120,7 @@ Formato usato:
   e' stato aggiunto un warmup/retry interno a `takePhoto()` nel plugin:
   - fino a 6 tentativi
   - attesa di 350 ms tra un tentativo e il successivo
+  - se `currentCamera` e' `null`, viene tentata una riapertura automatica del device corrente prima di fallire
 - Motivo tecnico:
   il callback di `open()` arriva prima che lo stato interno sia considerato abbastanza pronto per `takePhoto()`, oppure il plugin segnala open su un evento troppo anticipato rispetto alla preview attiva.
 - Stato:
@@ -153,3 +154,14 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - il workaround via reflection su `USBMonitor` dipende dalla struttura interna della libreria `AndroidUSBCamera 3.2.7`
 - il lifecycle UVC e' compilante, ma non ancora validato su sessioni lunghe 24/7
 - il wrapper applicativo sopra `navigator.usbUvcCamera` potrebbe ancora introdurre blocchi lato `yield`
+
+### Failure Cases da testare
+
+- avvio app senza webcam collegata
+- webcam scollegata dopo `open()`
+- webcam ricollegata senza riavvio app
+- permesso USB non concesso o flusso permission interrotto
+- `open()` chiamato piu' volte consecutive
+- `takePhoto()` chiamato senza camera pronta
+- `recoverCamera()` chiamato senza camera disponibile
+- app lasciata aperta per molte ore con webcam collegata

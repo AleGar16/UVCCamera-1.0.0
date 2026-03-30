@@ -180,6 +180,14 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void attemptTakePhoto(File photoFile, int attempt) {
         if (currentCamera == null) {
+            if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.d(TAG, "Camera instance missing, trying to reopen device before photo, attempt " + attempt);
+                ensureCameraClient();
+                safeRegisterCameraClient();
+                cameraClient.requestPermission(currentDevice);
+                mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+                return;
+            }
             failPendingPhoto("USB UVC camera not initialized");
             return;
         }
