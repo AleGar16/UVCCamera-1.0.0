@@ -126,6 +126,24 @@ Formato usato:
 - Stato:
   fix applicato, da validare a runtime.
 
+### 9. Tracing runtime su open/takePhoto
+
+- Richiesta/problema:
+  serviva capire dove si interrompe realmente il flusso tra `open()` e `takePhoto()`.
+- Modifica fatta:
+  sono stati aggiunti log mirati in `UsbUvcCamera.java` su:
+  - selezione device
+  - `onConnectDev`
+  - creazione `currentCamera`
+  - `onCameraState`
+  - `attemptTakePhoto`
+  - `captureImage`
+  - release camera
+- Motivo tecnico:
+  il prossimo test deve chiarire se la camera viene persa, se non entra davvero in stato preview, oppure se il capture non completa.
+- Stato:
+  completato, in attesa di log runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

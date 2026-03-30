@@ -139,16 +139,20 @@ public class UsbUvcCamera extends CordovaPlugin {
             previewHeight = options.optInt("height", 720);
         }
 
+        Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight);
+
         openCallback = callbackContext;
         ensureCameraClient();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
 
         UsbDevice device = selectPreferredDevice(options);
         if (device == null) {
+            Log.w(TAG, "open failed: no compatible USB UVC camera found");
             callbackContext.error("No compatible USB UVC camera found");
             return true;
         }
 
+        Log.i(TAG, "selected device for open: " + device.getDeviceName() + " (" + device.getVendorId() + ":" + device.getProductId() + ")");
         currentDevice = device;
         if (cameraClient != null) {
             safeRegisterCameraClient();
@@ -160,6 +164,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean takePhoto(CallbackContext callbackContext) {
+        Log.i(TAG, "takePhoto requested");
         photoCallback = callbackContext;
         String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
         File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
@@ -173,12 +178,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             storageDir.mkdirs();
         }
         File photoFile = new File(storageDir, fileName);
+        Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
         attemptTakePhoto(photoFile, 1);
         return true;
     }
 
     private void attemptTakePhoto(File photoFile, int attempt) {
+        Log.d(TAG, "attemptTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.d(TAG, "Camera instance missing, trying to reopen device before photo, attempt " + attempt);
@@ -194,6 +201,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         if (!currentCamera.isCameraOpened()) {
             if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.w(TAG, "Camera still not opened after retries");
                 failPendingPhoto("USB UVC camera not opened");
                 return;
             }
@@ -202,14 +210,16 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
+        Log.i(TAG, "captureImage starting on attempt " + attempt);
         currentCamera.captureImage(new ICaptureCallBack() {
             @Override
             public void onBegin() {
-                Log.d(TAG, "UVC capture started");
+                Log.i(TAG, "UVC capture onBegin");
             }
 
             @Override
             public void onError(String error) {
+                Log.e(TAG, "UVC capture onError: " + error);
                 if (photoCallback != null) {
                     photoCallback.error(error != null ? error : "UVC capture failed");
                     photoCallback = null;
@@ -218,6 +228,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
             @Override
             public void onComplete(String path) {
+                Log.i(TAG, "UVC capture onComplete: " + path);
                 if (photoCallback != null) {
                     photoCallback.success(path != null ? path : photoFile.getAbsolutePath());
                     photoCallback = null;
@@ -302,11 +313,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public void onConnectDev(UsbDevice device, USBMonitor.UsbControlBlock ctrlBlock) {
                 if (device == null || ctrlBlock == null) {
+                    Log.w(TAG, "onConnectDev ignored because device or ctrlBlock is null");
                     return;
                 }
                 if (currentDevice == null || device.getDeviceId() != currentDevice.getDeviceId()) {
+                    Log.d(TAG, "onConnectDev ignored for non-selected device: " + device.getDeviceName());
                     return;
                 }
+                Log.i(TAG, "onConnectDev for selected device: " + device.getDeviceName());
                 pendingOpenDevice = device;
                 pendingCtrlBlock = ctrlBlock;
                 maybeOpenPendingDevice();
@@ -422,11 +436,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             releaseCamera();
+            Log.i(TAG, "Creating MultiCameraClient.Camera for device: " + device.getDeviceName());
             currentCamera = new MultiCameraClient.Camera(cordova.getActivity(), device);
             currentCamera.setUsbControlBlock(ctrlBlock);
             currentCamera.setCameraStateCallBack(new ICameraStateCallBack() {
                 @Override
                 public void onCameraState(MultiCameraClient.Camera self, State code, String msg) {
+                    Log.i(TAG, "onCameraState code=" + code + ", msg=" + msg);
                     if (code == State.OPENED) {
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -458,6 +474,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                     .setPreviewWidth(previewWidth)
                     .setPreviewHeight(previewHeight)
                     .create();
+            Log.i(TAG, "Calling openCamera on MultiCameraClient.Camera");
             currentCamera.openCamera(previewView, request);
             pendingOpenDevice = null;
             pendingCtrlBlock = null;
@@ -475,6 +492,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private void releaseCamera() {
         if (currentCamera != null) {
             try {
+                Log.i(TAG, "Releasing currentCamera");
                 currentCamera.closeCamera();
             } catch (Exception ignored) {
             }
@@ -484,12 +502,14 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void maybeOpenPendingDevice() {
         if (!previewSurfaceReady || pendingOpenDevice == null || pendingCtrlBlock == null) {
+            Log.d(TAG, "maybeOpenPendingDevice skipped: previewReady=" + previewSurfaceReady + ", pendingDevice=" + (pendingOpenDevice != null) + ", pendingCtrlBlock=" + (pendingCtrlBlock != null));
             return;
         }
         UsbDevice device = pendingOpenDevice;
         USBMonitor.UsbControlBlock ctrlBlock = pendingCtrlBlock;
         pendingOpenDevice = null;
         pendingCtrlBlock = null;
+        Log.i(TAG, "maybeOpenPendingDevice proceeding with device " + device.getDeviceName());
         openConnectedDevice(device, ctrlBlock);
     }
 
