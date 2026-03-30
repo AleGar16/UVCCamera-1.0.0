@@ -16,10 +16,9 @@ import com.jiangdg.ausbc.MultiCameraClient;
 import com.jiangdg.ausbc.callback.ICameraStateCallBack;
 import com.jiangdg.ausbc.callback.ICaptureCallBack;
 import com.jiangdg.ausbc.callback.IDeviceConnectCallBack;
-import com.jiangdg.ausbc.camera.CameraUVC;
 import com.jiangdg.ausbc.camera.bean.CameraRequest;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
-import com.jiangdg.usb.USBMonitor;
+import com.serenegiant.usb.USBMonitor;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.json.JSONException;
@@ -36,7 +35,7 @@ import java.util.Locale;
 public class UsbUvcCamera extends CordovaPlugin {
     private static final String TAG = "UsbUvcCamera";
     private MultiCameraClient cameraClient;
-    private CameraUVC currentCamera;
+    private MultiCameraClient.Camera currentCamera;
     private UsbDevice currentDevice;
     private AspectRatioTextureView previewView;
     private ViewGroup previewContainer;
@@ -339,7 +338,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (cameraClient == null) {
             return null;
         }
-        List<UsbDevice> devices = cameraClient.getDeviceList();
+        List<UsbDevice> devices = cameraClient.getDeviceList(null);
         if (devices == null || devices.isEmpty()) {
             return null;
         }
@@ -385,11 +384,11 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             releaseCamera();
-            currentCamera = new CameraUVC(cordova.getActivity(), device);
+            currentCamera = new MultiCameraClient.Camera(cordova.getActivity(), device);
             currentCamera.setUsbControlBlock(ctrlBlock);
             currentCamera.setCameraStateCallBack(new ICameraStateCallBack() {
                 @Override
-                public void onCameraState(MultiCameraClient.ICamera self, State code, String msg) {
+                public void onCameraState(MultiCameraClient.Camera self, State code, String msg) {
                     if (code == State.OPENED) {
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -420,7 +419,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             CameraRequest request = new CameraRequest.Builder()
                     .setPreviewWidth(previewWidth)
                     .setPreviewHeight(previewHeight)
-                    .setPreviewFormat(CameraRequest.PreviewFormat.FORMAT_MJPEG)
                     .create();
             currentCamera.openCamera(previewView, request);
             pendingOpenDevice = null;
