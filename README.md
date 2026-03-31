@@ -43,6 +43,9 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.takePhoto(success, error)`
 - `navigator.usbUvcCamera.recoverCamera(success, error)`
 - `navigator.usbUvcCamera.close(success, error)`
+- `navigator.usbUvcCamera.showPreview(options, success, error)`
+- `navigator.usbUvcCamera.hidePreview(success, error)`
+- `navigator.usbUvcCamera.updatePreviewBounds(options, success, error)`
 - `navigator.usbUvcCamera.listUsbDevices(success, error)`
 - `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
 - `navigator.usbUvcCamera.setAutoFocus(enabled, success, error)`
@@ -88,4 +91,28 @@ navigator.usbUvcCamera.setAutoExposure(false, console.log, console.error);
 navigator.usbUvcCamera.setExposure(35, console.log, console.error);
 navigator.usbUvcCamera.setAutoWhiteBalance(false, console.log, console.error);
 navigator.usbUvcCamera.setWhiteBalance(55, console.log, console.error);
+```
+
+## Preview nativa
+
+La preview e' una `TextureView` Android nativa sovrapposta alla WebView, quindi non va inserita dentro un `iframe`.
+
+Puoi mostrarla e riposizionarla cosi':
+
+```javascript
+navigator.usbUvcCamera.showPreview({
+  x: 20,
+  y: 120,
+  width: 320,
+  height: 240
+}, console.log, console.error);
+
+navigator.usbUvcCamera.updatePreviewBounds({
+  x: 40,
+  y: 140,
+  width: 400,
+  height: 300
+}, console.log, console.error);
+
+navigator.usbUvcCamera.hidePreview(console.log, console.error);
 ```

@@ -67,9 +67,14 @@ public class UsbUvcCamera extends CordovaPlugin {
     private CallbackContext photoCallback;
     private int previewWidth = 1280;
     private int previewHeight = 720;
+    private int previewViewX = 0;
+    private int previewViewY = 0;
+    private int previewViewWidth = 1;
+    private int previewViewHeight = 1;
     private int preferredVendorId = -1;
     private int preferredProductId = -1;
     private boolean previewSurfaceReady = false;
+    private boolean previewVisible = false;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
@@ -148,6 +153,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                     cameraClient.requestPermission(currentDevice);
                 }
                 return true;
+            case "showPreview":
+                return showPreview(args, callbackContext);
+            case "hidePreview":
+                return hidePreview(callbackContext);
+            case "updatePreviewBounds":
+                return updatePreviewBounds(args, callbackContext);
             case "applyStableCameraProfile":
                 return applyStableCameraProfile(args, callbackContext);
             case "listUsbDevices":
@@ -224,6 +235,51 @@ public class UsbUvcCamera extends CordovaPlugin {
         } else {
             callbackContext.error("MultiCameraClient not initialized");
         }
+        return true;
+    }
+
+    private boolean showPreview(JSONArray args, CallbackContext callbackContext) {
+        JSONObject options = args.optJSONObject(0);
+        if (options != null) {
+            previewViewX = Math.max(0, options.optInt("x", previewViewX));
+            previewViewY = Math.max(0, options.optInt("y", previewViewY));
+            previewViewWidth = Math.max(1, options.optInt("width", previewViewWidth));
+            previewViewHeight = Math.max(1, options.optInt("height", previewViewHeight));
+        }
+        previewVisible = true;
+        cordova.getActivity().runOnUiThread(() -> {
+            ensurePreviewView();
+            applyPreviewLayout();
+            callbackContext.success("preview-shown");
+        });
+        return true;
+    }
+
+    private boolean hidePreview(CallbackContext callbackContext) {
+        previewVisible = false;
+        cordova.getActivity().runOnUiThread(() -> {
+            ensurePreviewView();
+            applyPreviewLayout();
+            callbackContext.success("preview-hidden");
+        });
+        return true;
+    }
+
+    private boolean updatePreviewBounds(JSONArray args, CallbackContext callbackContext) {
+        JSONObject options = args.optJSONObject(0);
+        if (options == null) {
+            callbackContext.error("Preview bounds options are required");
+            return true;
+        }
+        previewViewX = Math.max(0, options.optInt("x", previewViewX));
+        previewViewY = Math.max(0, options.optInt("y", previewViewY));
+        previewViewWidth = Math.max(1, options.optInt("width", previewViewWidth));
+        previewViewHeight = Math.max(1, options.optInt("height", previewViewHeight));
+        cordova.getActivity().runOnUiThread(() -> {
+            ensurePreviewView();
+            applyPreviewLayout();
+            callbackContext.success("preview-bounds-updated");
+        });
         return true;
     }
 
@@ -622,6 +678,29 @@ public class UsbUvcCamera extends CordovaPlugin {
             root.addView(previewView, params);
             previewContainer = root;
         }
+        applyPreviewLayout();
+    }
+
+    private void applyPreviewLayout() {
+        if (previewView == null || previewContainer == null) {
+            return;
+        }
+
+        int width = previewVisible ? previewViewWidth : 1;
+        int height = previewVisible ? previewViewHeight : 1;
+        int leftMargin = previewVisible ? previewViewX : 0;
+        int topMargin = previewVisible ? previewViewY : 0;
+        float alpha = previewVisible ? 1.0f : 0.01f;
+
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.leftMargin = leftMargin;
+        params.topMargin = topMargin;
+
+        previewView.setAlpha(alpha);
+        previewView.setLayoutParams(params);
+        previewView.bringToFront();
+        previewView.requestLayout();
     }
 
     private UsbDevice selectPreferredDevice(JSONObject options) {
@@ -879,27 +958,44 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean setFocus(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setFocus");
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            int value = clampPercent(args.optInt(0, 0));
+            uvcCamera.setAutoFocus(false);
+            setPercentControlInternal(uvcCamera, value, "Focus", "mFocusMin", "mFocusMax");
+            JSONObject result = new JSONObject();
+            result.put("requested", value);
+            result.put("applied", getPercentControlValue(uvcCamera, "Focus", "mFocusMin", "mFocusMax"));
+            result.put("autoFocus", uvcCamera.getAutoFocus());
+            callbackContext.success(result);
+        } catch (Exception exception) {
+            Log.e(TAG, "setFocus failed", exception);
+            callbackContext.error("setFocus failed: " + exception.getMessage());
+        }
+        return true;
     }
 
     private boolean setZoom(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setZoom");
+        return setPercentControl(args, callbackContext, "Zoom", "mZoomMin", "mZoomMax");
     }
 
     private boolean setBrightness(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setBrightness");
+        return setPercentControl(args, callbackContext, "Brightness", "mBrightnessMin", "mBrightnessMax");
     }
 
     private boolean setContrast(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setContrast");
+        return setPercentControl(args, callbackContext, "Contrast", "mContrastMin", "mContrastMax");
     }
 
     private boolean setSharpness(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setSharpness");
+        return setPercentControl(args, callbackContext, "Sharpness", "mSharpnessMin", "mSharpnessMax");
     }
 
     private boolean setGain(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setGain");
+        return setPercentControl(args, callbackContext, "Gain", "mGainMin", "mGainMax");
     }
 
     private boolean setAutoExposure(JSONArray args, CallbackContext callbackContext) {
@@ -942,7 +1038,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             boolean enabled = args.optBoolean(0, true);
             uvcCamera.setAutoWhiteBlance(enabled);
-            callbackContext.success("ok");
+            JSONObject result = new JSONObject();
+            result.put("requested", enabled);
+            result.put("applied", uvcCamera.getAutoWhiteBlance());
+            callbackContext.success(result);
         } catch (Exception exception) {
             callbackContext.error("setAutoWhiteBalance failed: " + exception.getMessage());
         }
@@ -950,21 +1049,24 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean setWhiteBalance(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "setWhiteBlance");
+        return setPercentControl(args, callbackContext, "WhiteBlance", "mWhiteBlanceMin", "mWhiteBlanceMax");
     }
 
-    private boolean setPercentControl(JSONArray args, CallbackContext callbackContext, String methodName) {
+    private boolean setPercentControl(JSONArray args, CallbackContext callbackContext, String controlName, String minField, String maxField) {
         try {
             UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
             if (uvcCamera == null) {
                 return true;
             }
             int value = clampPercent(args.optInt(0, 0));
-            UVCCamera.class.getMethod(methodName, int.class).invoke(uvcCamera, value);
-            callbackContext.success("ok");
+            setPercentControlInternal(uvcCamera, value, controlName, minField, maxField);
+            JSONObject result = new JSONObject();
+            result.put("requested", value);
+            result.put("applied", getPercentControlValue(uvcCamera, controlName, minField, maxField));
+            callbackContext.success(result);
         } catch (Exception exception) {
-            Log.e(TAG, methodName + " failed", exception);
-            callbackContext.error(methodName + " failed: " + exception.getMessage());
+            Log.e(TAG, "set" + controlName + " failed", exception);
+            callbackContext.error("set" + controlName + " failed: " + exception.getMessage());
         }
         return true;
     }
@@ -1032,6 +1134,27 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception exception) {
             Log.w(TAG, "getExposurePercent failed", exception);
             return 0;
+        }
+    }
+
+    private void setPercentControlInternal(UVCCamera camera, int percent, String controlName, String minField, String maxField) throws Exception {
+        invokeDeclaredVoidMethod(camera, "nativeUpdate" + controlName + "Limit");
+        int min = getIntField(camera, minField);
+        int max = getIntField(camera, maxField);
+        int absoluteValue = scalePercentToAbsolute(percent, min, max);
+        invokeDeclaredVoidMethod(camera, "nativeSet" + controlName, absoluteValue);
+    }
+
+    private int getPercentControlValue(UVCCamera camera, String controlName, String minField, String maxField) {
+        try {
+            invokeDeclaredVoidMethod(camera, "nativeUpdate" + controlName + "Limit");
+            int absoluteValue = invokeDeclaredIntMethod(camera, "nativeGet" + controlName);
+            int min = getIntField(camera, minField);
+            int max = getIntField(camera, maxField);
+            return scaleAbsoluteToPercent(absoluteValue, min, max);
+        } catch (Exception exception) {
+            Log.w(TAG, "getPercentControlValue failed for " + controlName, exception);
+            return -1;
         }
     }
 

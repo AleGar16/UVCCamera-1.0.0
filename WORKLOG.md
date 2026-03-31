@@ -294,6 +294,62 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 19. Preview nativa controllabile da app
+
+- Richiesta/problema:
+  serviva vedere in tempo reale cosa inquadra la webcam per regolare focus, zoom ed esposizione dalla UI applicativa.
+- Modifica fatta:
+  il plugin ora espone:
+  - `showPreview(options)`
+  - `hidePreview()`
+  - `updatePreviewBounds(options)`
+
+  La preview esistente, prima usata solo come `TextureView` quasi invisibile `1x1`, ora puo' essere resa visibile e posizionata con coordinate e dimensioni passate da JS.
+- Motivo tecnico:
+  la preview UVC e' nativa Android e viene sovrapposta alla WebView; questo approccio evita iframe o rendering base64 continuo e permette tuning live dei parametri camera.
+- Stato:
+  completato in codice, da validare a runtime.
+
+### 20. Hardening setter focus con readback
+
+- Richiesta/problema:
+  durante i test `setFocus()` non mostrava variazioni leggendo subito dopo `getCameraCapabilities()`.
+- Modifica fatta:
+  `setFocus()` ora:
+  - disattiva prima l'autofocus
+  - applica il focus manuale
+  - restituisce un oggetto con `requested`, `applied` e `autoFocus`
+
+  Anche gli altri setter percentuali e `setAutoWhiteBalance()` ora restituiscono un readback del valore applicato quando disponibile.
+- Motivo tecnico:
+  molte webcam UVC ignorano il focus manuale se l'autofocus resta attivo; il readback aiuta a distinguere subito tra valore richiesto e valore realmente accettato dalla camera.
+- Stato:
+  completato in codice, da validare a runtime.
+
+### 21. Setter UVC principali riallineati ai range reali del device
+
+- Richiesta/problema:
+  durante i test sembrava che `setFocus`, `setZoom` e altri setter non cambiassero davvero i valori letti poi da `getCameraCapabilities()`.
+- Modifica fatta:
+  i controlli principali ora non usano piu' i setter wrapper generici della libreria, ma:
+  - aggiornano i limiti reali del controllo
+  - convertono il valore percentuale `0-100` in valore assoluto UVC
+  - applicano il valore via metodo nativo del backend `UVCCamera`
+  - fanno readback nativo del valore risultante
+
+  Questo e' stato applicato a:
+  - focus
+  - zoom
+  - brightness
+  - contrast
+  - sharpness
+  - gain
+  - white balance
+- Motivo tecnico:
+  alcune webcam o alcune versioni della libreria non riflettono bene i setter ad alto livello; lavorare direttamente sui limiti e sui getter/setter nativi riduce il rischio di no-op silenziosi e rende coerente il modello con quello gia' usato per l'esposizione.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
