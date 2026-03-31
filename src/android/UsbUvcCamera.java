@@ -70,6 +70,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private CallbackContext photoCallback;
     private int previewWidth = 1280;
     private int previewHeight = 720;
+    private boolean preferHighestResolution = true;
     private int previewViewX = 0;
     private int previewViewY = 0;
     private int previewViewWidth = 1;
@@ -202,6 +203,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (options != null) {
             previewWidth = options.optInt("width", 1280);
             previewHeight = options.optInt("height", 720);
+            preferHighestResolution = options.optBoolean("preferHighestResolution", true);
             String preferredId = options.optString("cameraId", null);
             if (preferredId != null && preferredId.startsWith("uvc:")) {
                 String[] parts = preferredId.split(":");
@@ -217,7 +219,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
 
-        Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight);
+        Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight + ", preferHighestResolution=" + preferHighestResolution);
 
         openCallback = callbackContext;
         openingCamera = true;
@@ -853,6 +855,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             closeCurrentCamera(false);
             Log.i(TAG, "Creating MultiCameraClient.Camera for device: " + device.getDeviceName());
             currentCamera = new MultiCameraClient.Camera(cordova.getActivity(), device);
+            List<PreviewSize> initialPreviewSizes = currentCamera.getAllPreviewSizes(null);
+            logPreviewSizes("initial-preview-sizes", initialPreviewSizes);
+            PreviewSize targetPreviewSize = resolveTargetPreviewSize(initialPreviewSizes);
+            if (targetPreviewSize != null) {
+                previewWidth = targetPreviewSize.getWidth();
+                previewHeight = targetPreviewSize.getHeight();
+                Log.i(TAG, "Using target preview size " + previewWidth + "x" + previewHeight + " for open");
+            }
             currentCamera.addPreviewDataCallBack(new IPreviewDataCallBack() {
                 @Override
                 public void onPreviewData(byte[] data, DataFormat format) {
@@ -1026,6 +1036,40 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
         return null;
+    }
+
+    private PreviewSize resolveTargetPreviewSize(List<PreviewSize> sizes) {
+        if (sizes == null || sizes.isEmpty()) {
+            return null;
+        }
+
+        if (!preferHighestResolution) {
+            return findMatchingPreviewSize(sizes, previewWidth, previewHeight);
+        }
+
+        PreviewSize requestedSize = findMatchingPreviewSize(sizes, previewWidth, previewHeight);
+        PreviewSize highestSize = null;
+        int highestPixels = -1;
+        for (PreviewSize size : sizes) {
+            int pixels = size.getWidth() * size.getHeight();
+            if (pixels > highestPixels) {
+                highestPixels = pixels;
+                highestSize = size;
+            }
+        }
+
+        if (highestSize == null) {
+            return requestedSize;
+        }
+
+        if (requestedSize != null) {
+            int requestedPixels = requestedSize.getWidth() * requestedSize.getHeight();
+            if (requestedPixels >= highestPixels) {
+                return requestedSize;
+            }
+        }
+
+        return highestSize;
     }
 
     private void logPreviewSizes(String label, List<PreviewSize> sizes) {

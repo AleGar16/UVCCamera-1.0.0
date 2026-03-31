@@ -467,6 +467,23 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 29. Richiesta automatica della preview size piu' alta
+
+- Richiesta/problema:
+  la webcam espone preview size alte fino a `1920x1080`, ma il frame usato per `takePhoto()` risultava comunque `640x480`.
+- Modifica fatta:
+  durante `open()` il plugin ora:
+  - legge subito le preview size disponibili dal backend camera
+  - logga le size iniziali
+  - seleziona automaticamente la size piu' alta disponibile quando `preferHighestResolution` e' attivo
+  - usa quella size come `previewWidth` / `previewHeight` per la `CameraRequest`
+
+  L'opzione `preferHighestResolution` e' abilitata di default.
+- Motivo tecnico:
+  prima il plugin chiedeva la size passata dall'app, ad esempio `1280x720`; ora prova attivamente a sfruttare la preview piu' alta che la libreria dichiara come disponibile, per capire se il callback preview puo' essere portato oltre `640x480`.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
