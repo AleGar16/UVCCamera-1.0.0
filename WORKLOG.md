@@ -157,6 +157,20 @@ Formato usato:
   Nota aggiuntiva:
   e' stato necessario separare il cleanup interno usato prima di un reopen (`closeCurrentCamera(false)`) dalla chiusura vera (`releaseCamera()`), per non resettare `openingCamera` troppo presto durante `openConnectedDevice()`.
 
+### 11. Timeout esplicito su takePhoto
+
+- Richiesta/problema:
+  i log mostravano `UVC capture onBegin` ma non ancora `onComplete` o `onError`, con rischio di callback pendente.
+- Modifica fatta:
+  e' stato aggiunto un timeout di 6 secondi sullo scatto:
+  - pianificato all'inizio di `takePhoto()`
+  - cancellato su `onComplete`, `onError` e `releaseCamera()`
+  - in caso di scadenza restituisce `UVC capture timeout`
+- Motivo tecnico:
+  evitare che il flusso applicativo resti bloccato se la libreria UVC non chiude il callback finale.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

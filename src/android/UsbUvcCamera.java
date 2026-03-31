@@ -44,6 +44,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final String TAG = "UsbUvcCamera";
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
+    private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private UsbDevice currentDevice;
@@ -58,6 +59,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingPhotoTimeout;
 
     @Override
     protected void pluginInitialize() {
@@ -183,6 +185,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         File photoFile = new File(storageDir, fileName);
         Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
+        schedulePhotoTimeout();
         attemptTakePhoto(photoFile, 1);
         return true;
     }
@@ -223,6 +226,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public void onError(String error) {
                 Log.e(TAG, "UVC capture onError: " + error);
+                clearPhotoTimeout();
                 if (photoCallback != null) {
                     photoCallback.error(error != null ? error : "UVC capture failed");
                     photoCallback = null;
@@ -232,6 +236,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public void onComplete(String path) {
                 Log.i(TAG, "UVC capture onComplete: " + path);
+                clearPhotoTimeout();
                 if (photoCallback != null) {
                     photoCallback.success(path != null ? path : photoFile.getAbsolutePath());
                     photoCallback = null;
@@ -241,9 +246,26 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void failPendingPhoto(String message) {
+        clearPhotoTimeout();
         if (photoCallback != null) {
             photoCallback.error(message);
             photoCallback = null;
+        }
+    }
+
+    private void schedulePhotoTimeout() {
+        clearPhotoTimeout();
+        pendingPhotoTimeout = () -> {
+            Log.e(TAG, "UVC capture timeout after " + TAKE_PHOTO_TIMEOUT_MS + " ms");
+            failPendingPhoto("UVC capture timeout");
+        };
+        mainHandler.postDelayed(pendingPhotoTimeout, TAKE_PHOTO_TIMEOUT_MS);
+    }
+
+    private void clearPhotoTimeout() {
+        if (pendingPhotoTimeout != null) {
+            mainHandler.removeCallbacks(pendingPhotoTimeout);
+            pendingPhotoTimeout = null;
         }
     }
 
@@ -506,6 +528,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void releaseCamera() {
+        clearPhotoTimeout();
         closeCurrentCamera(true);
     }
 
