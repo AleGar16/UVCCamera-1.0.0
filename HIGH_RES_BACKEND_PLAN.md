@@ -43,6 +43,10 @@ Nel modulo Android del plugin sono gia' stati creati i contratti:
 - `HighResPhotoRequest`
 - `HighResPhotoResult`
 
+E' stato aggiunto anche il placeholder concreto:
+
+- `NativeStillCaptureBackend`
+
 Questi servono a evitare che il prossimo backend high-res venga incollato direttamente dentro `UsbUvcCamera.java`.
 
 ## Implementazione consigliata
@@ -58,6 +62,12 @@ Creare `StillCaptureBackend` separato, con una di queste strategie:
 - backend UVC nativo piu' basso livello
 - percorso still-image capture vero se il device/driver lo supporta
 - eventuale backend proprietario/vendor se il totem lo espone
+
+Il placeholder operativo di questa fase e':
+
+- `NativeStillCaptureBackend`
+
+che oggi e' volutamente non implementato ma e' gia' agganciato al progetto come destinazione della prossima integrazione reale.
 
 ### Fase C
 
