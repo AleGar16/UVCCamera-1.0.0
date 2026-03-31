@@ -171,6 +171,22 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 12. Fallback capture da preview frame
+
+- Richiesta/problema:
+  `captureImage()` della libreria entrava in `onBegin` ma sul totem non completava mai con `onComplete` o `onError`.
+- Modifica fatta:
+  `takePhoto()` non usa piu' il callback finale di `captureImage()`.
+  Invece:
+  - aggancia i frame preview NV21 con `addPreviewDataCallBack(...)`
+  - conserva l'ultimo frame disponibile
+  - risolve la dimensione reale del frame
+  - salva direttamente il JPEG con `MediaUtils.saveYuv2Jpeg(...)`
+- Motivo tecnico:
+  evitare il punto di stallo interno alla libreria AUSBC/UVCCamera e usare un flusso di capture piu' controllabile dal plugin.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

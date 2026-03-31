@@ -23,7 +23,10 @@ import com.jiangdg.ausbc.MultiCameraClient;
 import com.jiangdg.ausbc.callback.ICameraStateCallBack;
 import com.jiangdg.ausbc.callback.ICaptureCallBack;
 import com.jiangdg.ausbc.callback.IDeviceConnectCallBack;
+import com.jiangdg.ausbc.callback.IPreviewDataCallBack;
 import com.jiangdg.ausbc.camera.bean.CameraRequest;
+import com.jiangdg.ausbc.camera.bean.PreviewSize;
+import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
 import com.serenegiant.usb.USBMonitor;
 import org.apache.cordova.CallbackContext;
@@ -35,6 +38,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +64,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean openingCamera = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingPhotoTimeout;
+    private final Object previewFrameLock = new Object();
+    private byte[] latestPreviewFrame;
+    private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
 
     @Override
     protected void pluginInitialize() {
@@ -216,33 +223,51 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        Log.i(TAG, "captureImage starting on attempt " + attempt);
-        currentCamera.captureImage(new ICaptureCallBack() {
-            @Override
-            public void onBegin() {
-                Log.i(TAG, "UVC capture onBegin");
-            }
+        byte[] frameCopy;
+        synchronized (previewFrameLock) {
+            frameCopy = latestPreviewFrame != null ? latestPreviewFrame.clone() : null;
+        }
 
-            @Override
-            public void onError(String error) {
-                Log.e(TAG, "UVC capture onError: " + error);
+        if (frameCopy == null) {
+            if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.w(TAG, "No preview frame available after retries");
+                failPendingPhoto("No preview frame available");
+                return;
+            }
+            Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
+            mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            return;
+        }
+
+        PreviewSize frameSize = resolvePreviewSizeForFrame(frameCopy.length);
+        if (frameSize == null) {
+            Log.e(TAG, "Unable to resolve preview size for frame length " + frameCopy.length);
+            failPendingPhoto("Unable to resolve preview size");
+            return;
+        }
+
+        Log.i(TAG, "Saving preview frame as JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
+        cordova.getThreadPool().execute(() -> {
+            boolean saved = MediaUtils.saveYuv2Jpeg(
+                    photoFile.getAbsolutePath(),
+                    frameCopy,
+                    frameSize.getWidth(),
+                    frameSize.getHeight()
+            );
+            mainHandler.post(() -> {
+                if (!saved) {
+                    Log.e(TAG, "Preview frame JPEG save failed");
+                    failPendingPhoto("Failed to save preview frame");
+                    return;
+                }
+                Log.i(TAG, "Preview frame JPEG save complete: " + photoFile.getAbsolutePath());
                 clearPhotoTimeout();
                 if (photoCallback != null) {
-                    photoCallback.error(error != null ? error : "UVC capture failed");
+                    photoCallback.success(photoFile.getAbsolutePath());
                     photoCallback = null;
                 }
-            }
-
-            @Override
-            public void onComplete(String path) {
-                Log.i(TAG, "UVC capture onComplete: " + path);
-                clearPhotoTimeout();
-                if (photoCallback != null) {
-                    photoCallback.success(path != null ? path : photoFile.getAbsolutePath());
-                    photoCallback = null;
-                }
-            }
-        }, photoFile.getAbsolutePath());
+            });
+        });
     }
 
     private void failPendingPhoto(String message) {
@@ -472,12 +497,24 @@ public class UsbUvcCamera extends CordovaPlugin {
             closeCurrentCamera(false);
             Log.i(TAG, "Creating MultiCameraClient.Camera for device: " + device.getDeviceName());
             currentCamera = new MultiCameraClient.Camera(cordova.getActivity(), device);
+            currentCamera.addPreviewDataCallBack(new IPreviewDataCallBack() {
+                @Override
+                public void onPreviewData(byte[] data, DataFormat format) {
+                    if (data == null || format != DataFormat.NV21) {
+                        return;
+                    }
+                    synchronized (previewFrameLock) {
+                        latestPreviewFrame = data.clone();
+                    }
+                }
+            });
             currentCamera.setUsbControlBlock(ctrlBlock);
             currentCamera.setCameraStateCallBack(new ICameraStateCallBack() {
                 @Override
                 public void onCameraState(MultiCameraClient.Camera self, State code, String msg) {
                     Log.i(TAG, "onCameraState code=" + code + ", msg=" + msg);
                     if (code == State.OPENED) {
+                        currentPreviewSizes = self.getAllPreviewSizes(null);
                         openingCamera = false;
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -541,6 +578,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             currentCamera = null;
         }
+        synchronized (previewFrameLock) {
+            latestPreviewFrame = null;
+        }
+        currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
             openingCamera = false;
         }
@@ -567,6 +608,32 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
         return false;
+    }
+
+    private PreviewSize resolvePreviewSizeForFrame(int frameLength) {
+        int expectedPixels = (frameLength * 2) / 3;
+        List<PreviewSize> sizes = currentPreviewSizes != null ? currentPreviewSizes : new ArrayList<>();
+
+        for (PreviewSize size : sizes) {
+            if (size.getWidth() * size.getHeight() == expectedPixels) {
+                return size;
+            }
+        }
+
+        int[][] commonSizes = new int[][] {
+                {640, 480},
+                {1280, 720},
+                {800, 600},
+                {320, 240},
+                {1920, 1080}
+        };
+        for (int[] candidate : commonSizes) {
+            if (candidate[0] * candidate[1] == expectedPixels) {
+                return new PreviewSize(candidate[0], candidate[1]);
+            }
+        }
+
+        return null;
     }
 
     private void safeRegisterCameraClient() {
