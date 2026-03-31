@@ -624,6 +624,50 @@ Formato usato:
 - Stato:
   completato in codice come architettura di selezione backend.
 
+### 38. Analisi del vendor upstream UVCCamera
+
+- Richiesta/problema:
+  serviva capire se l'integrazione di `UVCCamera` upstream avrebbe risolto automaticamente il limite `640x480`.
+- Modifica fatta:
+  e' stata aggiunta l'analisi documentata in:
+  - `VENDOR_FINDINGS.md`
+
+  La verifica del codice upstream ha mostrato che il loro still capture standard passa da:
+  - `AbstractUVCCameraHandler.handleCaptureStill(...)`
+  - `UVCCameraTextureView.captureStillImage()`
+
+  cioe' da una cattura del contenuto della preview view.
+- Motivo tecnico:
+  questo significa che una semplice integrazione dei sample upstream "as is" non garantirebbe di superare il limite di risoluzione gia' osservato; la prossima implementazione di `NativeStillCaptureBackend` dovra' cercare un percorso non limitato alla preview view.
+- Stato:
+  completato come analisi tecnica documentata.
+
+### 39. Diagnostica raw USB/UVC descriptors dal device reale
+
+- Richiesta/problema:
+  serviva continuare in modo concreto verso il backend high-res reale, senza andare a tentativi ciechi sul codice.
+- Modifica fatta:
+  e' stata aggiunta l'azione nativa:
+  - `inspectUvcDescriptors()`
+
+  con implementazione in:
+  - `src/android/UsbUvcCamera.java`
+  - `www/usbUvcCamera.js`
+
+  e documentazione aggiornata in:
+  - `README.md`
+  - `HIGH_RES_BACKEND_PLAN.md`
+
+  L'azione apre il device USB reale, legge i raw descriptors e restituisce:
+  - interfacce video control / video streaming
+  - presenza di `VS_STILL_IMAGE_FRAME`
+  - formati e frame descriptors UVC
+  - frame sizes dichiarate nei descriptor
+- Motivo tecnico:
+  questo ci permette di capire se la Logitech C920 sul totem espone davvero uno still-image path UVC separato oppure solo descriptor di streaming/preview, e quindi se un backend nativo high-res ha basi reali su cui lavorare.
+- Stato:
+  completato in codice, da testare a runtime sul totem.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
