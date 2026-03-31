@@ -782,6 +782,22 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime leggendo i log `Underlying preview negotiation attempt requested=... negotiated=...`.
 
+### 45. Frame callback basso di UVCCamera per recuperare i frame high-res negoziati
+
+- Richiesta/problema:
+  dopo la negoziazione a `960x720`, `captureImage()` andava in timeout e il vecchio `addPreviewDataCallBack(...)` non consegnava piu' frame utili per `takePhoto()`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il plugin ora installa un frame callback basso direttamente su `UVCCamera` tramite reflection:
+  - uso di `UVCCamera.setFrameCallback(...)`
+  - preferenza per `PIXEL_FORMAT_NV21`
+  - fallback a `PIXEL_FORMAT_YUV420SP`
+
+  I frame ricevuti vengono copiati in `latestPreviewFrame`, cosi' `attemptTakePhoto()` puo' usare il frame realmente negoziato dalla preview bassa.
+- Motivo tecnico:
+  il forcing a `960x720` avviene sotto il livello AUSBC; per recuperare davvero quei frame serviva agganciarsi al callback nativo della `UVCCamera` sottostante, non piu' al callback legacy del wrapper superiore.
+- Stato:
+  completato in codice, da validare a runtime verificando che dopo la negoziazione high-res arrivino frame e che `takePhoto()` non fallisca piu' con `No preview frame available`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
