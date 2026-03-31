@@ -189,6 +189,38 @@ Formato usato:
   Nota di compatibilita':
   da Java l'helper Kotlin `MediaUtils` va invocato come `MediaUtils.INSTANCE.saveYuv2Jpeg(...)`.
 
+### 13. Primo successo end-to-end open + takePhoto
+
+- Richiesta/problema:
+  verificare se il nuovo plugin UVC riusciva a completare davvero il flusso applicativo completo.
+- Modifica fatta:
+  test eseguito lato app con:
+  - `listUsbDevices()`
+  - `openCamera()`
+  - `takePhoto()`
+- Motivo tecnico:
+  serviva confermare che il fallback di scatto da preview frame eliminasse il blocco del vecchio `captureImage()`.
+- Stato:
+  completato con esito positivo.
+  Risultato osservato:
+  - `openCamera` riuscito con Logitech C920
+  - `takePhoto` riuscito con path restituito:
+    `/storage/emulated/0/Android/data/com.tesisquare.totemKK/files/Pictures/UsbUvcCamera/...jpg`
+
+### 14. Reconnect automatico dopo detach/disconnect
+
+- Richiesta/problema:
+  quando la webcam viene staccata e riattaccata, il plugin perde il collegamento e lo scatto fallisce con camera non pronta.
+- Modifica fatta:
+  e' stato aggiunto un reconnect automatico:
+  - attivato dopo `open()` / `recoverCamera()`
+  - schedulato dopo `onDetachDec` / `onDisConnectDec`
+  - ritenta `requestPermission(currentDevice)` dopo una breve attesa
+- Motivo tecnico:
+  migliorare il comportamento kiosk 24/7 senza richiedere riavvio app o dispositivo dopo unplug/replug della webcam.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

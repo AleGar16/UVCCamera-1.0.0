@@ -49,6 +49,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
+    private static final int RECONNECT_DELAY_MS = 1200;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private UsbDevice currentDevice;
@@ -62,8 +63,11 @@ public class UsbUvcCamera extends CordovaPlugin {
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
+    private boolean autoReconnectEnabled = false;
+    private boolean reconnectScheduled = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingPhotoTimeout;
+    private Runnable pendingReconnect;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
@@ -127,6 +131,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
                 openCallback = callbackContext;
                 openingCamera = true;
+                autoReconnectEnabled = true;
                 ensureCameraClient();
                 if (cameraClient != null) {
                     safeRegisterCameraClient();
@@ -154,6 +159,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         openCallback = callbackContext;
         openingCamera = true;
+        autoReconnectEnabled = true;
         ensureCameraClient();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
 
@@ -361,6 +367,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         return;
                     }
                     releaseCamera();
+                    scheduleReconnect();
                 }
             }
 
@@ -389,6 +396,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         return;
                     }
                     releaseCamera();
+                    scheduleReconnect();
                 }
             }
 
@@ -566,6 +574,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void releaseCamera() {
         clearPhotoTimeout();
+        clearReconnect();
         closeCurrentCamera(true);
     }
 
@@ -648,6 +657,34 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception exception) {
             Log.w(TAG, "cameraClient.register failed", exception);
         }
+    }
+
+    private void scheduleReconnect() {
+        if (!autoReconnectEnabled || currentDevice == null || reconnectScheduled) {
+            return;
+        }
+        reconnectScheduled = true;
+        pendingReconnect = () -> {
+            reconnectScheduled = false;
+            if (!autoReconnectEnabled || currentDevice == null) {
+                return;
+            }
+            Log.i(TAG, "Attempting automatic reconnect for device " + currentDevice.getDeviceName());
+            openingCamera = true;
+            ensureCameraClient();
+            safeRegisterCameraClient();
+            cameraClient.requestPermission(currentDevice);
+        };
+        Log.i(TAG, "Scheduling automatic reconnect in " + RECONNECT_DELAY_MS + " ms");
+        mainHandler.postDelayed(pendingReconnect, RECONNECT_DELAY_MS);
+    }
+
+    private void clearReconnect() {
+        if (pendingReconnect != null) {
+            mainHandler.removeCallbacks(pendingReconnect);
+            pendingReconnect = null;
+        }
+        reconnectScheduled = false;
     }
 
     private void tryManualUsbMonitorRegister() {
