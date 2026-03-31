@@ -685,6 +685,34 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime leggendo i log di open e la risoluzione reale di `takePhoto()`.
 
+### 41. Introspezione runtime delle API reali della libreria AUSBC 3.2.7
+
+- Richiesta/problema:
+  i log runtime hanno mostrato che nella `3.2.7` realmente caricata non esistono:
+  - `CameraRequest.PreviewFormat`
+  - `setRawPreviewData`
+  - `setCaptureRawImage`
+
+  quindi non era piu' utile provare nomi di metodi "alla cieca".
+- Modifica fatta:
+  e' stata aggiunta l'azione:
+  - `inspectBackendApi()`
+
+  in:
+  - `src/android/UsbUvcCamera.java`
+  - `www/usbUvcCamera.js`
+
+  L'azione restituisce i metodi e i field piu' rilevanti esposti a runtime da:
+  - `CameraRequest.Builder`
+  - `MultiCameraClient.Camera`
+  - `UVCCamera`
+
+  filtrati per keyword come `preview`, `format`, `raw`, `capture`, `frame`, `mjpeg`, `yuv`, `size`, `mode`.
+- Motivo tecnico:
+  questo ci permette di trovare eventuali leve reali ancora disponibili nella libreria integrata sul totem, prima di decidere se il ramo AUSBC e' definitivamente un vicolo cieco per l'high-res.
+- Stato:
+  completato in codice, da eseguire a runtime sul totem.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
