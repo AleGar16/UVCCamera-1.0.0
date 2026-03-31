@@ -592,6 +592,20 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime/build.
 
+### 36. Placeholder del backend alternativo allo still capture AUSBC
+
+- Richiesta/problema:
+  i test runtime hanno confermato che `AusbcHighResPhotoCaptureBackend` resta fermo a `640x480`, quindi serve un backend alternativo per la vera qualita' fotografica.
+- Modifica fatta:
+  e' stato aggiunto:
+  - `NativeStillCaptureBackend.java`
+
+  e il progetto/plugin e' stato aggiornato per includerlo nello scaffolding della prossima fase.
+- Motivo tecnico:
+  il backend alternativo va trattato come sostituto pulito di `AusbcHighResPhotoCaptureBackend`, non come altra logica sparsa nel plugin principale.
+- Stato:
+  completato come placeholder architetturale.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
