@@ -63,6 +63,23 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.setWhiteBalance(value, success, error)`
 - `navigator.usbUvcCamera.applyStableCameraProfile(options, success, error)`
 
+L'`open(options)` accetta anche:
+
+- `preferHighestResolution: true|false`
+- `preferMjpeg: true|false`
+
+Esempio:
+
+```javascript
+navigator.usbUvcCamera.open({
+  cameraId: "uvc:1133:2093",
+  width: 1280,
+  height: 720,
+  preferHighestResolution: true,
+  preferMjpeg: true
+}, console.log, console.error);
+```
+
 ## Controlli UVC
 
 I setter numerici attuali accettano valori percentuali `0-100`.

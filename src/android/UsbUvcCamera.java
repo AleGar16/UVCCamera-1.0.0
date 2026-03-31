@@ -79,6 +79,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int previewWidth = 1280;
     private int previewHeight = 720;
     private boolean preferHighestResolution = true;
+    private boolean preferMjpeg = true;
     private int previewViewX = 0;
     private int previewViewY = 0;
     private int previewViewWidth = 1;
@@ -223,6 +224,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             requestedPreviewWidth = previewWidth;
             requestedPreviewHeight = previewHeight;
             preferHighestResolution = options.optBoolean("preferHighestResolution", true);
+            preferMjpeg = options.optBoolean("preferMjpeg", true);
             String preferredId = options.optString("cameraId", null);
             if (preferredId != null && preferredId.startsWith("uvc:")) {
                 String[] parts = preferredId.split(":");
@@ -238,7 +240,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
 
-        Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight + ", preferHighestResolution=" + preferHighestResolution);
+        Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight + ", preferHighestResolution=" + preferHighestResolution + ", preferMjpeg=" + preferMjpeg);
 
         openCallback = callbackContext;
         openingCamera = true;
@@ -1093,10 +1095,11 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             });
 
-            CameraRequest request = new CameraRequest.Builder()
+            CameraRequest.Builder requestBuilder = new CameraRequest.Builder()
                     .setPreviewWidth(previewWidth)
-                    .setPreviewHeight(previewHeight)
-                    .create();
+                    .setPreviewHeight(previewHeight);
+            applyPreferredCameraRequestOptions(requestBuilder);
+            CameraRequest request = requestBuilder.create();
             Log.i(TAG, "Calling openCamera on MultiCameraClient.Camera");
             currentCamera.openCamera(previewView, request);
             pendingOpenDevice = null;
@@ -1399,6 +1402,84 @@ public class UsbUvcCamera extends CordovaPlugin {
             builder.append(size.getWidth()).append("x").append(size.getHeight());
         }
         Log.i(TAG, label + ": " + builder);
+    }
+
+    private void applyPreferredCameraRequestOptions(CameraRequest.Builder requestBuilder) {
+        if (requestBuilder == null) {
+            return;
+        }
+
+        if (preferMjpeg) {
+            boolean previewFormatApplied = tryApplyPreviewFormat(requestBuilder, "MJPEG");
+            Log.i(TAG, "preferred preview format MJPEG applied=" + previewFormatApplied);
+        }
+
+        boolean rawPreviewApplied = tryInvokeBuilderBoolean(requestBuilder, "setRawPreviewData", true);
+        boolean rawCaptureApplied = tryInvokeBuilderBoolean(requestBuilder, "setCaptureRawImage", true);
+        Log.i(TAG, "camera request tuning rawPreviewApplied=" + rawPreviewApplied + ", rawCaptureApplied=" + rawCaptureApplied);
+    }
+
+    private boolean tryApplyPreviewFormat(CameraRequest.Builder requestBuilder, String preferredFormatName) {
+        try {
+            Class<?> previewFormatClass = Class.forName("com.jiangdg.ausbc.camera.bean.CameraRequest$PreviewFormat");
+            Object selectedValue = null;
+            Object[] constants = previewFormatClass.getEnumConstants();
+            if (constants != null) {
+                for (Object constant : constants) {
+                    if (!(constant instanceof Enum)) {
+                        continue;
+                    }
+                    String name = ((Enum<?>) constant).name();
+                    if (preferredFormatName.equalsIgnoreCase("MJPEG") && name.toUpperCase(Locale.ROOT).contains("MJPEG")) {
+                        selectedValue = constant;
+                        break;
+                    }
+                }
+                if (selectedValue == null) {
+                    for (Object constant : constants) {
+                        if (!(constant instanceof Enum)) {
+                            continue;
+                        }
+                        String name = ((Enum<?>) constant).name();
+                        if (name.toUpperCase(Locale.ROOT).contains("YUYV")) {
+                            selectedValue = constant;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (selectedValue == null) {
+                Log.w(TAG, "No matching CameraRequest.PreviewFormat constant found for " + preferredFormatName);
+                return false;
+            }
+            java.lang.reflect.Method method = requestBuilder.getClass().getMethod("setPreviewFormat", previewFormatClass);
+            method.invoke(requestBuilder, selectedValue);
+            Log.i(TAG, "Applied CameraRequest preview format constant=" + ((Enum<?>) selectedValue).name());
+            return true;
+        } catch (ClassNotFoundException exception) {
+            Log.w(TAG, "CameraRequest.PreviewFormat class not available", exception);
+            return false;
+        } catch (NoSuchMethodException exception) {
+            Log.w(TAG, "CameraRequest.Builder.setPreviewFormat not available", exception);
+            return false;
+        } catch (Exception exception) {
+            Log.w(TAG, "Failed applying CameraRequest preview format", exception);
+            return false;
+        }
+    }
+
+    private boolean tryInvokeBuilderBoolean(CameraRequest.Builder requestBuilder, String methodName, boolean value) {
+        try {
+            java.lang.reflect.Method method = requestBuilder.getClass().getMethod(methodName, boolean.class);
+            method.invoke(requestBuilder, value);
+            return true;
+        } catch (NoSuchMethodException exception) {
+            Log.w(TAG, "CameraRequest.Builder." + methodName + " not available", exception);
+            return false;
+        } catch (Exception exception) {
+            Log.w(TAG, "Failed invoking CameraRequest.Builder." + methodName, exception);
+            return false;
+        }
     }
 
     private boolean setAutoFocus(JSONArray args, CallbackContext callbackContext) {

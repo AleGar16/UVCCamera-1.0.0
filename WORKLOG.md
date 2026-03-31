@@ -668,6 +668,23 @@ Formato usato:
 - Stato:
   completato in codice, da testare a runtime sul totem.
 
+### 40. Tentativo esplicito di stream MJPEG high-res nello stack AUSBC
+
+- Richiesta/problema:
+  dai raw UVC descriptors e' emerso che la C920 non espone still-image descriptors, ma espone stream `MJPEG` ad alta risoluzione fino a `1920x1080`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il plugin ora prova a costruire la `CameraRequest` con preferenza MJPEG via reflection:
+  - `preferMjpeg` su `open(options)` default `true`
+  - tentativo di `CameraRequest.Builder.setPreviewFormat(...)`
+  - attivazione best-effort di `setRawPreviewData(true)`
+  - attivazione best-effort di `setCaptureRawImage(true)`
+
+  E' stata aggiornata anche la documentazione in `README.md`.
+- Motivo tecnico:
+  non avendo uno still endpoint UVC vero, l'unica strada realistica rimasta e' negoziare davvero uno stream MJPEG/high-res nello stack attuale invece di accettare il fallback `640x480`.
+- Stato:
+  completato in codice, da validare a runtime leggendo i log di open e la risoluzione reale di `takePhoto()`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
