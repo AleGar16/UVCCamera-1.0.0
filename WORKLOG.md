@@ -519,6 +519,20 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 32. Log della risoluzione reale del JPEG high-res
+
+- Richiesta/problema:
+  dopo aver confermato la creazione del file high-res serviva sapere anche la risoluzione effettiva dell'immagine, non solo la dimensione in byte.
+- Modifica fatta:
+  il plugin ora decodifica i bounds del JPEG creato e logga:
+  - size in byte
+  - width
+  - height
+- Motivo tecnico:
+  serve confermare in modo oggettivo se il percorso high-res sta producendo davvero un'immagine fotografica ad alta risoluzione o solo un file JPEG di dimensioni maggiori ma non necessariamente ad alta risoluzione.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

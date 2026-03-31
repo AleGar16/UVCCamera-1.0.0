@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
@@ -400,7 +401,10 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void pollHighResCaptureFile(File photoFile, int pollAttempt) {
         if (photoFile.exists() && photoFile.length() >= HIGH_RES_CAPTURE_MIN_BYTES) {
-            Log.i(TAG, "High-res capture file detected size=" + photoFile.length());
+            int[] dimensions = decodeImageDimensions(photoFile);
+            Log.i(TAG, "High-res capture file detected size=" + photoFile.length()
+                    + ", width=" + dimensions[0]
+                    + ", height=" + dimensions[1]);
             cordova.getThreadPool().execute(() -> {
                 String encodedImage = encodeFileAsBase64(photoFile);
                 mainHandler.post(() -> {
@@ -1570,6 +1574,18 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    private int[] decodeImageDimensions(File file) {
+        try {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+            return new int[] { options.outWidth, options.outHeight };
+        } catch (Exception exception) {
+            Log.w(TAG, "decodeImageDimensions failed", exception);
+            return new int[] { -1, -1 };
         }
     }
 
