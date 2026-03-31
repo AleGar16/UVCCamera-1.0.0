@@ -154,6 +154,8 @@ Formato usato:
   evitare che `currentCamera` venga azzerata subito prima di `State.OPENED`, generando reopen inutili su `takePhoto()` e warning di `Surface` / `UsbDeviceConnection` non rilasciate.
 - Stato:
   completato in codice, da validare a runtime.
+  Nota aggiuntiva:
+  e' stato necessario separare il cleanup interno usato prima di un reopen (`closeCurrentCamera(false)`) dalla chiusura vera (`releaseCamera()`), per non resettare `openingCamera` troppo presto durante `openConnectedDevice()`.
 
 ## Nota operativa
 

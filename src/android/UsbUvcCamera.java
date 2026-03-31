@@ -447,7 +447,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 Log.d(TAG, "Preview surface not ready yet, delaying UVC open");
                 return;
             }
-            releaseCamera();
+            closeCurrentCamera(false);
             Log.i(TAG, "Creating MultiCameraClient.Camera for device: " + device.getDeviceName());
             currentCamera = new MultiCameraClient.Camera(cordova.getActivity(), device);
             currentCamera.setUsbControlBlock(ctrlBlock);
@@ -506,6 +506,10 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void releaseCamera() {
+        closeCurrentCamera(true);
+    }
+
+    private void closeCurrentCamera(boolean resetOpeningFlag) {
         if (currentCamera != null) {
             try {
                 Log.i(TAG, "Releasing currentCamera");
@@ -514,7 +518,9 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             currentCamera = null;
         }
-        openingCamera = false;
+        if (resetOpeningFlag) {
+            openingCamera = false;
+        }
     }
 
     private void maybeOpenPendingDevice() {
