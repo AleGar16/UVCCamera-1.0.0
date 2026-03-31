@@ -663,6 +663,11 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void ensurePreviewView() {
         if (previewView != null) {
+            previewSurfaceReady = previewView.isAvailable();
+            if (previewSurfaceReady) {
+                Log.d(TAG, "ensurePreviewView found existing available preview surface");
+                maybeOpenPendingDevice();
+            }
             return;
         }
         previewView = new AspectRatioTextureView(cordova.getActivity());
@@ -701,6 +706,15 @@ public class UsbUvcCamera extends CordovaPlugin {
             previewContainer = root;
         }
         applyPreviewLayout();
+        mainHandler.post(() -> {
+            if (previewView != null && previewView.isAvailable()) {
+                previewSurfaceReady = true;
+                Log.d(TAG, "Preview surface became available immediately after attach");
+                maybeOpenPendingDevice();
+            } else {
+                Log.d(TAG, "Preview surface still not available after attach");
+            }
+        });
     }
 
     private void applyPreviewLayout() {

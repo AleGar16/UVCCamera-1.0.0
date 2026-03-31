@@ -383,6 +383,21 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 24. Hardening open quando la preview surface non e' ancora pronta
+
+- Richiesta/problema:
+  in alcuni run `openCamera()` restava appeso dopo `selected device for open`, con log:
+  `maybeOpenPendingDevice skipped: previewReady=false`.
+- Modifica fatta:
+  `ensurePreviewView()` ora:
+  - controlla subito `previewView.isAvailable()` se la view esiste gia'
+  - se la surface e' disponibile, richiama immediatamente `maybeOpenPendingDevice()`
+  - dopo l'attach della view, fa un controllo postato sul main thread per verificare se la surface e' diventata disponibile subito dopo l'aggiunta al layout
+- Motivo tecnico:
+  il flusso di open dipende dalla `TextureView` nativa; se la surface non viene intercettata nel timing giusto, l'apertura resta in sospeso pur avendo gia' selezionato il device USB corretto.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
