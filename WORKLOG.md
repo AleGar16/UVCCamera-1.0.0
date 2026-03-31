@@ -500,6 +500,8 @@ Formato usato:
   la libreria AUSBC sembrava bloccare i callback di `captureImage()` ma al tempo stesso mostrava segnali di compressione JPEG interna; il polling del file permette di verificare se il vero scatto high-res avviene comunque, senza dipendere dal callback di completamento.
 - Stato:
   completato in codice, da validare a runtime.
+  Nota di compatibilita':
+  nella versione della libreria risolta dal build server la firma corretta di `captureImage` e' `captureImage(ICaptureCallBack, String)`, non `captureImage(String, ICaptureCallBack)`.
 
 ### 31. Scelta preview size resa piu' prudente
 

@@ -375,7 +375,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         try {
             Log.i(TAG, "Starting high-res captureImage flow");
-            currentCamera.captureImage(photoFile.getAbsolutePath(), new ICaptureCallBack() {
+            currentCamera.captureImage(new ICaptureCallBack() {
                 @Override
                 public void onBegin() {
                     Log.i(TAG, "High-res capture onBegin");
@@ -390,7 +390,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 public void onError(String error) {
                     Log.w(TAG, "High-res capture onError " + error);
                 }
-            });
+            }, photoFile.getAbsolutePath());
             pollHighResCaptureFile(photoFile, 1);
         } catch (Exception exception) {
             Log.w(TAG, "High-res captureImage flow failed, falling back to preview frame", exception);
