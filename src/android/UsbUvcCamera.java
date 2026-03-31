@@ -36,6 +36,7 @@ import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
 import com.serenegiant.usb.USBMonitor;
+import com.serenegiant.usb.IFrameCallback;
 import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -100,7 +101,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingPhotoTimeout;
     private Runnable pendingReconnect;
-    private Object underlyingFrameCallback;
+    private IFrameCallback underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
@@ -1598,28 +1599,24 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         try {
-            Class<?> callbackInterface = Class.forName("com.serenegiant.usb.IFrameCallback");
-            underlyingFrameCallback = java.lang.reflect.Proxy.newProxyInstance(
-                    callbackInterface.getClassLoader(),
-                    new Class<?>[] { callbackInterface },
-                    (proxy, method, args) -> {
-                        if (method != null && "onFrame".equals(method.getName()) && args != null && args.length > 0 && args[0] instanceof ByteBuffer) {
-                            ByteBuffer buffer = (ByteBuffer) args[0];
-                            ByteBuffer copy = buffer.duplicate();
-                            byte[] bytes = new byte[copy.remaining()];
-                            copy.get(bytes);
-                            synchronized (previewFrameLock) {
-                                latestPreviewFrame = bytes;
-                            }
-                        }
-                        return null;
+            underlyingFrameCallback = new IFrameCallback() {
+                @Override
+                public void onFrame(ByteBuffer buffer) {
+                    if (buffer == null) {
+                        return;
                     }
-            );
+                    ByteBuffer copy = buffer.duplicate();
+                    byte[] bytes = new byte[copy.remaining()];
+                    copy.get(bytes);
+                    synchronized (previewFrameLock) {
+                        latestPreviewFrame = bytes;
+                    }
+                }
+            };
 
-            java.lang.reflect.Method setFrameCallbackMethod = UVCCamera.class.getMethod("setFrameCallback", callbackInterface, int.class);
             int pixelFormat = getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_NV21",
                     getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_YUV420SP", 4));
-            setFrameCallbackMethod.invoke(uvcCamera, underlyingFrameCallback, pixelFormat);
+            uvcCamera.setFrameCallback(underlyingFrameCallback, pixelFormat);
             Log.i(TAG, "Installed underlying UVCCamera frame callback with pixelFormat=" + pixelFormat);
         } catch (Exception exception) {
             Log.w(TAG, "Unable to install underlying UVCCamera frame callback", exception);
@@ -1633,9 +1630,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 underlyingFrameCallback = null;
                 return;
             }
-            Class<?> callbackInterface = Class.forName("com.serenegiant.usb.IFrameCallback");
-            java.lang.reflect.Method setFrameCallbackMethod = UVCCamera.class.getMethod("setFrameCallback", callbackInterface, int.class);
-            setFrameCallbackMethod.invoke(uvcCamera, new Object[] { null, 0 });
+            uvcCamera.setFrameCallback(null, 0);
         } catch (Exception ignored) {
         } finally {
             underlyingFrameCallback = null;

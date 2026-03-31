@@ -798,6 +798,26 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime verificando che dopo la negoziazione high-res arrivino frame e che `takePhoto()` non fallisca piu' con `No preview frame available`.
 
+### 46. Sostituzione del Proxy dinamico con IFrameCallback tipizzato per evitare crash JNI
+
+- Richiesta/problema:
+  il totem andava in crash subito dopo l'installazione del frame callback basso, con abort ART:
+  `JNI DETECTED ERROR IN APPLICATION: the return type of CallVoidMethodV does not match void com.serenegiant.usb.IFrameCallback.onFrame(java.nio.ByteBuffer)`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il callback basso non viene piu' creato via `java.lang.reflect.Proxy`, ma come implementazione Java tipizzata di `com.serenegiant.usb.IFrameCallback`.
+
+  In piu':
+  - il campo `underlyingFrameCallback` e' stato tipizzato come `IFrameCallback`
+  - `UVCCamera.setFrameCallback(...)` viene chiamato direttamente, senza reflection sul metodo
+  - la rimozione del callback usa `uvcCamera.setFrameCallback(null, 0)`
+- Motivo tecnico:
+  il bridge JNI di `libUVCCamera.so` si aspetta un oggetto Java che implementi realmente `IFrameCallback`; il proxy dinamico risultava incompatibile con il controllo firma/return type eseguito da ART e causava il crash nativo.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando che:
+  - la preview continui a negoziare size alte come `960x720`
+  - non compaia piu' l'errore JNI su `CallVoidMethodV`
+  - `takePhoto()` riesca a usare i frame ricevuti dal callback basso.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
