@@ -64,6 +64,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private CallbackContext photoCallback;
     private int previewWidth = 1280;
     private int previewHeight = 720;
+    private int preferredVendorId = -1;
+    private int preferredProductId = -1;
     private boolean previewSurfaceReady = false;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
@@ -158,6 +160,19 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (options != null) {
             previewWidth = options.optInt("width", 1280);
             previewHeight = options.optInt("height", 720);
+            String preferredId = options.optString("cameraId", null);
+            if (preferredId != null && preferredId.startsWith("uvc:")) {
+                String[] parts = preferredId.split(":");
+                if (parts.length == 3) {
+                    try {
+                        preferredVendorId = Integer.parseInt(parts[1]);
+                        preferredProductId = Integer.parseInt(parts[2]);
+                    } catch (NumberFormatException ignored) {
+                        preferredVendorId = -1;
+                        preferredProductId = -1;
+                    }
+                }
+            }
         }
 
         Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight);
@@ -210,6 +225,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void attemptTakePhoto(File photoFile, int attempt) {
         Log.d(TAG, "attemptTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
+        refreshCurrentDeviceReference();
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.d(TAG, "Camera instance missing, trying to reopen device before photo, attempt " + attempt);
@@ -360,6 +376,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public void onAttachDev(UsbDevice device) {
                 Log.d(TAG, "USB attach: " + (device != null ? device.getDeviceName() : "null"));
+                if (autoReconnectEnabled && currentCamera == null) {
+                    refreshCurrentDeviceReference();
+                    scheduleReconnect();
+                }
             }
 
             @Override
@@ -494,6 +514,53 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return device;
             }
         }
+        return null;
+    }
+
+    private void refreshCurrentDeviceReference() {
+        UsbDevice refreshed = resolveReconnectTargetDevice();
+        if (refreshed != null) {
+            currentDevice = refreshed;
+        }
+    }
+
+    private UsbDevice resolveReconnectTargetDevice() {
+        if (cameraClient == null) {
+            return null;
+        }
+        List<UsbDevice> devices = cameraClient.getDeviceList(null);
+        if (devices == null || devices.isEmpty()) {
+            return null;
+        }
+
+        if (preferredVendorId > -1 && preferredProductId > -1) {
+            for (UsbDevice device : devices) {
+                if (device.getVendorId() == preferredVendorId && device.getProductId() == preferredProductId) {
+                    return device;
+                }
+            }
+        }
+
+        if (currentDevice != null) {
+            for (UsbDevice device : devices) {
+                if (device.getVendorId() == currentDevice.getVendorId() && device.getProductId() == currentDevice.getProductId()) {
+                    return device;
+                }
+            }
+        }
+
+        for (UsbDevice device : devices) {
+            if (device.getVendorId() == 0x046d) {
+                return device;
+            }
+        }
+
+        for (UsbDevice device : devices) {
+            if (hasVideoInterface(device)) {
+                return device;
+            }
+        }
+
         return null;
     }
 
@@ -685,13 +752,18 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void scheduleReconnect() {
-        if (!autoReconnectEnabled || currentDevice == null || reconnectScheduled) {
+        if (!autoReconnectEnabled || reconnectScheduled) {
             return;
         }
         reconnectScheduled = true;
         pendingReconnect = () -> {
             reconnectScheduled = false;
-            if (!autoReconnectEnabled || currentDevice == null) {
+            if (!autoReconnectEnabled) {
+                return;
+            }
+            refreshCurrentDeviceReference();
+            if (currentDevice == null) {
+                Log.w(TAG, "Automatic reconnect skipped: no matching USB device currently available");
                 return;
             }
             Log.i(TAG, "Attempting automatic reconnect for device " + currentDevice.getDeviceName());

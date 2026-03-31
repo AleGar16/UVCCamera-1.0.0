@@ -220,6 +220,8 @@ Formato usato:
   migliorare il comportamento kiosk 24/7 senza richiedere riavvio app o dispositivo dopo unplug/replug della webcam.
 - Stato:
   completato in codice, da validare a runtime.
+  Nota aggiuntiva:
+  il reconnect ora non si affida piu' solo al vecchio `currentDevice`, ma risolve di nuovo il device corrente tramite `vendorId/productId`, per gestire meglio unplug/replug dove il riferimento USB precedente diventa obsoleto.
 
 ### 15. takePhoto restituisce base64
 
