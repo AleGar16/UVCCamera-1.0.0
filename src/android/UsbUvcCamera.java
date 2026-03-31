@@ -756,12 +756,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (highResPhotoCaptureBackend != null) {
             return;
         }
-        highResPhotoCaptureBackend = new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
+        List<HighResPhotoCaptureBackend> backends = new ArrayList<>();
+        backends.add(new NativeStillCaptureBackend());
+        backends.add(new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
             @Override
             public MultiCameraClient.Camera getCurrentCamera() {
                 return currentCamera;
             }
-        });
+        }));
+        highResPhotoCaptureBackend = new CompositeHighResPhotoCaptureBackend(backends);
         try {
             highResPhotoCaptureBackend.initialize();
         } catch (Exception exception) {

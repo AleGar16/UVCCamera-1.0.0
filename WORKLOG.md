@@ -606,6 +606,24 @@ Formato usato:
 - Stato:
   completato come placeholder architetturale.
 
+### 37. Chain di backend high-res con priorita' al backend alternativo
+
+- Richiesta/problema:
+  il backend alternativo non doveva restare un semplice file placeholder scollegato dal plugin.
+- Modifica fatta:
+  e' stato aggiunto:
+  - `CompositeHighResPhotoCaptureBackend.java`
+
+  e `UsbUvcCamera` ora inizializza la chain high-res in questo ordine:
+  1. `NativeStillCaptureBackend`
+  2. `AusbcHighResPhotoCaptureBackend`
+
+  Quindi il plugin e' gia' predisposto a dare priorita' al backend alternativo reale non appena verra' implementato, mantenendo AUSBC come fallback.
+- Motivo tecnico:
+  questo evita di dover riscrivere ancora `takePhoto()` quando il backend alternativo sara' pronto; bastera' implementare davvero `NativeStillCaptureBackend`.
+- Stato:
+  completato in codice come architettura di selezione backend.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

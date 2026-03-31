@@ -69,6 +69,12 @@ Il placeholder operativo di questa fase e':
 
 che oggi e' volutamente non implementato ma e' gia' agganciato al progetto come destinazione della prossima integrazione reale.
 
+Per supportare la migrazione graduale e' stato aggiunto anche:
+
+- `CompositeHighResPhotoCaptureBackend`
+
+che permette di provare prima il backend alternativo e, se non disponibile o non implementato, fare fallback sul backend AUSBC attuale.
+
 ### Fase C
 
 Agganciare `UsbUvcCamera.takePhoto()` al nuovo `HighResPhotoCaptureBackend`, mantenendo:

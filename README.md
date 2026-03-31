@@ -125,6 +125,7 @@ Il plugin e' stato impostato per una nuova fase architetturale:
 - il backend attuale resta il riferimento per preview e controlli
 - il photo capture high-res verra' separato in un backend dedicato
 - e' gia' presente il placeholder [NativeStillCaptureBackend.java](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/src/android/NativeStillCaptureBackend.java) per la prossima integrazione reale
+- il plugin usa gia' una catena di backend high-res, pronta per dare priorita' al backend alternativo e fare fallback su AUSBC solo se necessario
 
 Dettagli operativi:
 
