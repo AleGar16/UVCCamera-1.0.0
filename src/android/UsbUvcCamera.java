@@ -733,8 +733,10 @@ public class UsbUvcCamera extends CordovaPlugin {
         params.leftMargin = leftMargin;
         params.topMargin = topMargin;
 
+        // Keep the TextureView attached and visible to let Android create/retain
+        // the underlying SurfaceTexture even when the preview is "hidden" for the user.
         previewView.setAlpha(alpha);
-        previewView.setVisibility(previewVisible ? View.VISIBLE : View.INVISIBLE);
+        previewView.setVisibility(View.VISIBLE);
         previewView.setLayoutParams(params);
         if (Build.VERSION.SDK_INT >= 21) {
             previewView.setElevation(10000f);

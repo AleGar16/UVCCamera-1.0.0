@@ -398,6 +398,17 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 25. Correzione preview "hidden" ma ancora attiva
+
+- Richiesta/problema:
+  nei log `open()` restava fermo su `previewReady=false` anche se la `TextureView` era stata creata.
+- Modifica fatta:
+  la preview, quando nascosta, non viene piu' resa `INVISIBLE`; resta `VISIBLE`, con alpha minima e dimensione `1x1`.
+- Motivo tecnico:
+  una `TextureView` invisibile puo' non creare o non mantenere la `SurfaceTexture`, bloccando l'open della camera che dipende proprio da quella surface.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
