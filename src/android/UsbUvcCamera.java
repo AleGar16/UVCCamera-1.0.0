@@ -67,6 +67,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_OPEN_RETRIES = 2;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
+    private HighResPhotoCaptureBackend highResPhotoCaptureBackend;
     private UsbDevice currentDevice;
     private AspectRatioTextureView previewView;
     private ViewGroup previewContainer;
@@ -102,6 +103,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     protected void pluginInitialize() {
         super.pluginInitialize();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
+        ensureHighResPhotoCaptureBackend();
         ensureCameraClient();
     }
 
@@ -134,6 +136,10 @@ public class UsbUvcCamera extends CordovaPlugin {
                 cameraClient.destroy();
             } catch (Exception ignored) {}
             cameraClient = null;
+        }
+        if (highResPhotoCaptureBackend != null) {
+            highResPhotoCaptureBackend.release();
+            highResPhotoCaptureBackend = null;
         }
         super.onDestroy();
     }
@@ -374,64 +380,42 @@ public class UsbUvcCamera extends CordovaPlugin {
             photoFile.delete();
         }
 
-        try {
-            Log.i(TAG, "Starting high-res captureImage flow");
-            currentCamera.captureImage(new ICaptureCallBack() {
-                @Override
-                public void onBegin() {
-                    Log.i(TAG, "High-res capture onBegin");
-                }
-
-                @Override
-                public void onComplete(String path) {
-                    Log.i(TAG, "High-res capture onComplete path=" + path);
-                }
-
-                @Override
-                public void onError(String error) {
-                    Log.w(TAG, "High-res capture onError " + error);
-                }
-            }, photoFile.getAbsolutePath());
-            pollHighResCaptureFile(photoFile, 1);
-        } catch (Exception exception) {
-            Log.w(TAG, "High-res captureImage flow failed, falling back to preview frame", exception);
+        ensureHighResPhotoCaptureBackend();
+        HighResPhotoCaptureBackend backend = highResPhotoCaptureBackend;
+        if (backend == null || currentDevice == null || !backend.supportsDevice(currentDevice)) {
+            Log.w(TAG, "No high-res photo backend available, falling back to preview frame");
             attemptTakePhoto(photoFile, 1);
+            return;
         }
-    }
 
-    private void pollHighResCaptureFile(File photoFile, int pollAttempt) {
-        if (photoFile.exists() && photoFile.length() >= HIGH_RES_CAPTURE_MIN_BYTES) {
-            int[] dimensions = decodeImageDimensions(photoFile);
-            Log.i(TAG, "High-res capture file detected size=" + photoFile.length()
-                    + ", width=" + dimensions[0]
-                    + ", height=" + dimensions[1]);
-            cordova.getThreadPool().execute(() -> {
-                String encodedImage = encodeFileAsBase64(photoFile);
+        HighResPhotoRequest request = new HighResPhotoRequest(
+                requestedPreviewWidth,
+                requestedPreviewHeight,
+                100,
+                "uvc:" + currentDevice.getVendorId() + ":" + currentDevice.getProductId(),
+                photoFile.getAbsolutePath(),
+                TAKE_PHOTO_TIMEOUT_MS
+        );
+
+        cordova.getThreadPool().execute(() -> {
+            try {
+                HighResPhotoResult result = backend.capture(currentDevice, request);
                 mainHandler.post(() -> {
-                    if (encodedImage == null) {
-                        Log.e(TAG, "High-res capture file encoding failed, falling back to preview");
-                        attemptTakePhoto(photoFile, 1);
-                        return;
-                    }
-                    Log.i(TAG, "High-res capture file base64 encoding complete");
+                    Log.i(TAG, "High-res capture backend success backend=" + result.getBackendName()
+                            + ", width=" + result.getWidth()
+                            + ", height=" + result.getHeight()
+                            + ", bytes=" + result.getFileSizeBytes());
                     clearPhotoTimeout();
                     if (photoCallback != null) {
-                        photoCallback.success(encodedImage);
+                        photoCallback.success(result.getBase64Jpeg());
                         photoCallback = null;
                     }
                 });
-            });
-            return;
-        }
-
-        int elapsedMs = pollAttempt * HIGH_RES_CAPTURE_POLL_INTERVAL_MS;
-        if (elapsedMs >= TAKE_PHOTO_TIMEOUT_MS) {
-            Log.w(TAG, "High-res capture file not available within timeout, falling back to preview frame");
-            attemptTakePhoto(photoFile, 1);
-            return;
-        }
-
-        mainHandler.postDelayed(() -> pollHighResCaptureFile(photoFile, pollAttempt + 1), HIGH_RES_CAPTURE_POLL_INTERVAL_MS);
+            } catch (Exception exception) {
+                Log.w(TAG, "High-res backend failed, falling back to preview frame", exception);
+                mainHandler.post(() -> attemptTakePhoto(photoFile, 1));
+            }
+        });
     }
 
     private void attemptTakePhoto(File photoFile, int attempt) {
@@ -766,6 +750,24 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         });
         safeRegisterCameraClient();
+    }
+
+    private void ensureHighResPhotoCaptureBackend() {
+        if (highResPhotoCaptureBackend != null) {
+            return;
+        }
+        highResPhotoCaptureBackend = new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
+            @Override
+            public MultiCameraClient.Camera getCurrentCamera() {
+                return currentCamera;
+            }
+        });
+        try {
+            highResPhotoCaptureBackend.initialize();
+        } catch (Exception exception) {
+            Log.w(TAG, "High-res photo backend initialization failed", exception);
+            highResPhotoCaptureBackend = null;
+        }
     }
 
     private void ensurePreviewView() {

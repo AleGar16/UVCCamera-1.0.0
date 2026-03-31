@@ -29,6 +29,12 @@
         </config-file>
 
         <source-file src="src/android/UsbUvcCamera.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/AusbcCameraHandleProvider.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/AusbcHighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/HighResPhotoRequest.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/HighResPhotoResult.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/HighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
+        <source-file src="src/android/PreviewControlBackend.java" target-dir="src/com/cordova/plugin" />
         <framework src="src/android/build.gradle" custom="true" type="gradleReference" />
         <resource-file src="src/android/res/xml/device_filter.xml" target="res/xml/device_filter.xml" />
     </platform>
