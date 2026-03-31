@@ -871,6 +871,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                     Log.i(TAG, "onCameraState code=" + code + ", msg=" + msg);
                     if (code == State.OPENED) {
                         currentPreviewSizes = self.getAllPreviewSizes(null);
+                        logPreviewSizes("available-preview-sizes", currentPreviewSizes);
                         openingCamera = false;
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -984,8 +985,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         int expectedPixels = (frameLength * 2) / 3;
         List<PreviewSize> sizes = currentPreviewSizes != null ? currentPreviewSizes : new ArrayList<>();
 
+        PreviewSize requestedSize = findMatchingPreviewSize(sizes, previewWidth, previewHeight);
+        if (requestedSize != null && requestedSize.getWidth() * requestedSize.getHeight() == expectedPixels) {
+            Log.i(TAG, "resolvePreviewSizeForFrame matched requested preview size " + previewWidth + "x" + previewHeight);
+            return requestedSize;
+        }
+
         for (PreviewSize size : sizes) {
             if (size.getWidth() * size.getHeight() == expectedPixels) {
+                Log.i(TAG, "resolvePreviewSizeForFrame matched available preview size " + size.getWidth() + "x" + size.getHeight());
                 return size;
             }
         }
@@ -999,11 +1007,40 @@ public class UsbUvcCamera extends CordovaPlugin {
         };
         for (int[] candidate : commonSizes) {
             if (candidate[0] * candidate[1] == expectedPixels) {
+                Log.i(TAG, "resolvePreviewSizeForFrame matched fallback size " + candidate[0] + "x" + candidate[1]);
                 return new PreviewSize(candidate[0], candidate[1]);
             }
         }
 
+        Log.w(TAG, "resolvePreviewSizeForFrame could not match frameLength=" + frameLength + " (expectedPixels=" + expectedPixels + ")");
         return null;
+    }
+
+    private PreviewSize findMatchingPreviewSize(List<PreviewSize> sizes, int width, int height) {
+        if (sizes == null) {
+            return null;
+        }
+        for (PreviewSize size : sizes) {
+            if (size.getWidth() == width && size.getHeight() == height) {
+                return size;
+            }
+        }
+        return null;
+    }
+
+    private void logPreviewSizes(String label, List<PreviewSize> sizes) {
+        if (sizes == null || sizes.isEmpty()) {
+            Log.w(TAG, label + ": none");
+            return;
+        }
+        StringBuilder builder = new StringBuilder();
+        for (PreviewSize size : sizes) {
+            if (builder.length() > 0) {
+                builder.append(", ");
+            }
+            builder.append(size.getWidth()).append("x").append(size.getHeight());
+        }
+        Log.i(TAG, label + ": " + builder);
     }
 
     private boolean setAutoFocus(JSONArray args, CallbackContext callbackContext) {

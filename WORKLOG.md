@@ -453,6 +453,20 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 28. Diagnostica preview size reale per qualita' base64
+
+- Richiesta/problema:
+  il base64 della foto risultava di buona qualita' JPEG ma con risoluzione effettiva `640x480`, non `1280x720`.
+- Modifica fatta:
+  il plugin ora:
+  - logga tutte le preview size disponibili quando la camera entra in `OPENED`
+  - logga quale size viene effettivamente associata al frame preview usato per lo scatto
+  - prova a privilegiare la size richiesta (`previewWidth` / `previewHeight`) quando coerente con il frame ricevuto
+- Motivo tecnico:
+  prima di tentare ulteriori ottimizzazioni serve capire se la webcam/backend stanno davvero offrendo `1280x720` come preview reale oppure se il frame usato per la foto continua a essere `640x480`.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
