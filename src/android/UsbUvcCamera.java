@@ -1044,7 +1044,33 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean setZoom(JSONArray args, CallbackContext callbackContext) {
-        return setPercentControl(args, callbackContext, "Zoom", "mZoomMin", "mZoomMax");
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            int value = clampPercent(args.optInt(0, 0));
+            invokeDeclaredVoidMethod(uvcCamera, "nativeUpdateZoomLimit");
+            int min = getIntField(uvcCamera, "mZoomMin");
+            int max = getIntField(uvcCamera, "mZoomMax");
+            int absoluteValue = scalePercentToAbsolute(value, min, max);
+            Log.i(TAG, "setZoom requestedPercent=" + value + ", min=" + min + ", max=" + max + ", absoluteValue=" + absoluteValue);
+            invokeDeclaredVoidMethod(uvcCamera, "nativeSetZoom", absoluteValue);
+            int appliedAbsolute = invokeDeclaredIntMethod(uvcCamera, "nativeGetZoom");
+            int appliedPercent = scaleAbsoluteToPercent(appliedAbsolute, min, max);
+            JSONObject result = new JSONObject();
+            result.put("requested", value);
+            result.put("min", min);
+            result.put("max", max);
+            result.put("absoluteValue", absoluteValue);
+            result.put("appliedAbsolute", appliedAbsolute);
+            result.put("applied", appliedPercent);
+            callbackContext.success(result);
+        } catch (Exception exception) {
+            Log.e(TAG, "setZoom failed", exception);
+            callbackContext.error("setZoom failed: " + exception.getMessage());
+        }
+        return true;
     }
 
     private boolean setBrightness(JSONArray args, CallbackContext callbackContext) {

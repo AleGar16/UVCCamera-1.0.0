@@ -430,6 +430,29 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 27. Diagnostica dedicata per il controllo zoom
+
+- Richiesta/problema:
+  dopo aver sistemato il passaggio dei valori dall'app, `focus` ed `exposure` risultano funzionanti ma `zoom` continua a non cambiare in modo visibile.
+- Modifica fatta:
+  `setZoom()` ora restituisce un payload piu' ricco con:
+  - `requested`
+  - `min`
+  - `max`
+  - `absoluteValue`
+  - `appliedAbsolute`
+  - `applied`
+
+  Inoltre logga esplicitamente la conversione percentuale -> valore assoluto UVC.
+- Motivo tecnico:
+  serve capire se il backend:
+  - riceve il valore giusto
+  - lo converte correttamente nel range reale
+  - lo applica davvero
+  - oppure lo ignora nonostante il flag di supporto riportato dalla capability detection.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
