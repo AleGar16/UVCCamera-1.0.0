@@ -104,6 +104,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private IFrameCallback underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
+    private int latestPreviewFrameWidth = -1;
+    private int latestPreviewFrameHeight = -1;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
 
     @Override
@@ -469,8 +471,12 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         byte[] frameCopy;
+        int frameWidth;
+        int frameHeight;
         synchronized (previewFrameLock) {
             frameCopy = latestPreviewFrame != null ? latestPreviewFrame.clone() : null;
+            frameWidth = latestPreviewFrameWidth;
+            frameHeight = latestPreviewFrameHeight;
         }
 
         if (frameCopy == null) {
@@ -484,7 +490,13 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        PreviewSize frameSize = resolvePreviewSizeForFrame(frameCopy.length);
+        PreviewSize frameSize;
+        if (frameWidth > 0 && frameHeight > 0) {
+            frameSize = new PreviewSize(frameWidth, frameHeight);
+            Log.i(TAG, "Using stored preview frame size " + frameWidth + "x" + frameHeight);
+        } else {
+            frameSize = resolvePreviewSizeForFrame(frameCopy.length);
+        }
         if (frameSize == null) {
             Log.e(TAG, "Unable to resolve preview size for frame length " + frameCopy.length);
             failPendingPhoto("Unable to resolve preview size");
@@ -1128,7 +1140,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                         return;
                     }
                     synchronized (previewFrameLock) {
+                        if (underlyingFrameCallback != null) {
+                            return;
+                        }
                         latestPreviewFrame = data.clone();
+                        latestPreviewFrameWidth = previewWidth;
+                        latestPreviewFrameHeight = previewHeight;
                     }
                 }
             });
@@ -1225,6 +1242,8 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
         synchronized (previewFrameLock) {
             latestPreviewFrame = null;
+            latestPreviewFrameWidth = -1;
+            latestPreviewFrameHeight = -1;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1608,8 +1627,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                     ByteBuffer copy = buffer.duplicate();
                     byte[] bytes = new byte[copy.remaining()];
                     copy.get(bytes);
+                    int[] negotiated = getNegotiatedPreviewSize();
+                    int frameWidth = negotiated[0] > 0 ? negotiated[0] : previewWidth;
+                    int frameHeight = negotiated[1] > 0 ? negotiated[1] : previewHeight;
                     synchronized (previewFrameLock) {
                         latestPreviewFrame = bytes;
+                        latestPreviewFrameWidth = frameWidth;
+                        latestPreviewFrameHeight = frameHeight;
                     }
                 }
             };
@@ -1634,6 +1658,10 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception ignored) {
         } finally {
             underlyingFrameCallback = null;
+            synchronized (previewFrameLock) {
+                latestPreviewFrameWidth = -1;
+                latestPreviewFrameHeight = -1;
+            }
         }
     }
 
