@@ -350,6 +350,39 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 22. Hardening preview nativa visibile
+
+- Richiesta/problema:
+  nei primi test di `showPreview()` lato app non sembrava apparire nulla.
+- Modifica fatta:
+  la preview ora:
+  - forza `View.VISIBLE` quando mostrata
+  - forza `View.INVISIBLE` quando nascosta
+  - porta esplicitamente la `TextureView` davanti agli altri child del container
+  - imposta una `elevation` alta su Android 5+
+  - logga i parametri applicati e ritorna al JS i bounds effettivamente usati
+- Motivo tecnico:
+  la `TextureView` nativa poteva essere aggiornata ma restare sotto la WebView o comunque non abbastanza visibile nei test; questi accorgimenti rendono il comportamento piu' diagnostico e piu' robusto.
+- Stato:
+  completato in codice, da validare a runtime.
+
+### 23. Diagnostica setter runtime
+
+- Richiesta/problema:
+  durante i test i setter come `setFocus`, `setZoom` e `setExposure` sembravano restare a `0` anche quando dall'app venivano impostati valori diversi.
+- Modifica fatta:
+  il plugin ora:
+  - logga esplicitamente il valore ricevuto da ogni setter principale
+  - restituisce per `setExposure` e `setAutoExposure` un oggetto con readback, non solo `"ok"`
+  - continua a restituire `requested/applied` per gli altri setter gia' strumentati
+- Motivo tecnico:
+  serve distinguere rapidamente tra:
+  - valore errato/non passato dal bridge/app
+  - valore accettato ma non applicato dal backend camera
+  - build runtime non aggiornata
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

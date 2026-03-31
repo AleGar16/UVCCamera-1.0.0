@@ -20,6 +20,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -247,16 +248,27 @@ public class UsbUvcCamera extends CordovaPlugin {
             previewViewHeight = Math.max(1, options.optInt("height", previewViewHeight));
         }
         previewVisible = true;
+        Log.i(TAG, "showPreview requested x=" + previewViewX + ", y=" + previewViewY + ", width=" + previewViewWidth + ", height=" + previewViewHeight);
         cordova.getActivity().runOnUiThread(() -> {
             ensurePreviewView();
             applyPreviewLayout();
-            callbackContext.success("preview-shown");
+            JSONObject result = new JSONObject();
+            try {
+                result.put("visible", true);
+                result.put("x", previewViewX);
+                result.put("y", previewViewY);
+                result.put("width", previewViewWidth);
+                result.put("height", previewViewHeight);
+            } catch (JSONException ignored) {
+            }
+            callbackContext.success(result);
         });
         return true;
     }
 
     private boolean hidePreview(CallbackContext callbackContext) {
         previewVisible = false;
+        Log.i(TAG, "hidePreview requested");
         cordova.getActivity().runOnUiThread(() -> {
             ensurePreviewView();
             applyPreviewLayout();
@@ -275,10 +287,20 @@ public class UsbUvcCamera extends CordovaPlugin {
         previewViewY = Math.max(0, options.optInt("y", previewViewY));
         previewViewWidth = Math.max(1, options.optInt("width", previewViewWidth));
         previewViewHeight = Math.max(1, options.optInt("height", previewViewHeight));
+        Log.i(TAG, "updatePreviewBounds requested x=" + previewViewX + ", y=" + previewViewY + ", width=" + previewViewWidth + ", height=" + previewViewHeight);
         cordova.getActivity().runOnUiThread(() -> {
             ensurePreviewView();
             applyPreviewLayout();
-            callbackContext.success("preview-bounds-updated");
+            JSONObject result = new JSONObject();
+            try {
+                result.put("visible", previewVisible);
+                result.put("x", previewViewX);
+                result.put("y", previewViewY);
+                result.put("width", previewViewWidth);
+                result.put("height", previewViewHeight);
+            } catch (JSONException ignored) {
+            }
+            callbackContext.success(result);
         });
         return true;
     }
@@ -698,9 +720,17 @@ public class UsbUvcCamera extends CordovaPlugin {
         params.topMargin = topMargin;
 
         previewView.setAlpha(alpha);
+        previewView.setVisibility(previewVisible ? View.VISIBLE : View.INVISIBLE);
         previewView.setLayoutParams(params);
+        if (Build.VERSION.SDK_INT >= 21) {
+            previewView.setElevation(10000f);
+        }
+        if (previewContainer instanceof FrameLayout) {
+            ((FrameLayout) previewContainer).bringChildToFront(previewView);
+        }
         previewView.bringToFront();
         previewView.requestLayout();
+        Log.i(TAG, "applyPreviewLayout visible=" + previewVisible + ", x=" + leftMargin + ", y=" + topMargin + ", width=" + width + ", height=" + height);
     }
 
     private UsbDevice selectPreferredDevice(JSONObject options) {
@@ -964,6 +994,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
             int value = clampPercent(args.optInt(0, 0));
+            Log.i(TAG, "setFocus requestedPercent=" + value);
             uvcCamera.setAutoFocus(false);
             setPercentControlInternal(uvcCamera, value, "Focus", "mFocusMin", "mFocusMax");
             JSONObject result = new JSONObject();
@@ -1005,8 +1036,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
             boolean enabled = args.optBoolean(0, true);
+            Log.i(TAG, "setAutoExposure requestedEnabled=" + enabled);
             setAutoExposureInternal(uvcCamera, enabled);
-            callbackContext.success("ok");
+            JSONObject result = new JSONObject();
+            result.put("requested", enabled);
+            result.put("applied", getAutoExposure(uvcCamera));
+            callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "setAutoExposure failed", exception);
             callbackContext.error("setAutoExposure failed: " + exception.getMessage());
@@ -1021,8 +1056,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
             int value = clampPercent(args.optInt(0, 0));
+            Log.i(TAG, "setExposure requestedPercent=" + value);
             setExposureInternal(uvcCamera, value);
-            callbackContext.success("ok");
+            JSONObject result = new JSONObject();
+            result.put("requested", value);
+            result.put("applied", getExposurePercent(uvcCamera));
+            result.put("autoExposure", getAutoExposure(uvcCamera));
+            callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "setExposure failed", exception);
             callbackContext.error("setExposure failed: " + exception.getMessage());
@@ -1037,6 +1077,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
             boolean enabled = args.optBoolean(0, true);
+            Log.i(TAG, "setAutoWhiteBalance requestedEnabled=" + enabled);
             uvcCamera.setAutoWhiteBlance(enabled);
             JSONObject result = new JSONObject();
             result.put("requested", enabled);
@@ -1059,6 +1100,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
             int value = clampPercent(args.optInt(0, 0));
+            Log.i(TAG, "set" + controlName + " requestedPercent=" + value);
             setPercentControlInternal(uvcCamera, value, controlName, minField, maxField);
             JSONObject result = new JSONObject();
             result.put("requested", value);
