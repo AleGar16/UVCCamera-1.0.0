@@ -189,6 +189,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return getCameraCapabilities(callbackContext);
             case "inspectUvcDescriptors":
                 return inspectUvcDescriptors(callbackContext);
+            case "inspectBackendApi":
+                return inspectBackendApi(callbackContext);
             case "setAutoFocus":
                 return setAutoFocus(args, callbackContext);
             case "setFocus":
@@ -714,6 +716,25 @@ public class UsbUvcCamera extends CordovaPlugin {
         return true;
     }
 
+    private boolean inspectBackendApi(CallbackContext callbackContext) {
+        try {
+            JSONObject result = new JSONObject();
+            result.put("cameraRequestBuilderMethods", collectMatchingMethodNames(CameraRequest.Builder.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render"));
+            result.put("multiCameraClientCameraMethods", collectMatchingMethodNames(MultiCameraClient.Camera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render", "size"));
+            result.put("uvcCameraMethods", collectMatchingMethodNames(UVCCamera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
+            result.put("uvcCameraFields", collectMatchingFieldNames(UVCCamera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
+            callbackContext.success(result);
+        } catch (Exception exception) {
+            Log.e(TAG, "inspectBackendApi failed", exception);
+            callbackContext.error("inspectBackendApi failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
     private boolean applyStableCameraProfile(JSONArray args, CallbackContext callbackContext) {
         try {
             UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
@@ -1183,6 +1204,73 @@ public class UsbUvcCamera extends CordovaPlugin {
             interfaces.put(interfaceJson);
         }
         return interfaces;
+    }
+
+    private JSONArray collectMatchingMethodNames(Class<?> type, String... keywords) throws JSONException {
+        JSONArray methods = new JSONArray();
+        if (type == null) {
+            return methods;
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+            String name = method.getName();
+            if (matchesKeyword(name, keywords)) {
+                names.add(name + buildMethodSignature(method));
+            }
+        }
+        for (java.lang.reflect.Method method : type.getMethods()) {
+            String name = method.getName();
+            if (matchesKeyword(name, keywords)) {
+                names.add(name + buildMethodSignature(method));
+            }
+        }
+        for (String name : names) {
+            methods.put(name);
+        }
+        return methods;
+    }
+
+    private JSONArray collectMatchingFieldNames(Class<?> type, String... keywords) throws JSONException {
+        JSONArray fields = new JSONArray();
+        if (type == null) {
+            return fields;
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (Field field : type.getDeclaredFields()) {
+            if (matchesKeyword(field.getName(), keywords)) {
+                names.add(field.getType().getSimpleName() + " " + field.getName());
+            }
+        }
+        for (String name : names) {
+            fields.put(name);
+        }
+        return fields;
+    }
+
+    private boolean matchesKeyword(String value, String... keywords) {
+        if (value == null || keywords == null) {
+            return false;
+        }
+        String normalized = value.toLowerCase(Locale.ROOT);
+        for (String keyword : keywords) {
+            if (keyword != null && normalized.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String buildMethodSignature(java.lang.reflect.Method method) {
+        StringBuilder builder = new StringBuilder("(");
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(parameterTypes[i].getSimpleName());
+        }
+        builder.append("): ").append(method.getReturnType().getSimpleName());
+        return builder.toString();
     }
 
     private ParsedUvcDescriptors parseUvcDescriptors(byte[] rawDescriptors) {
