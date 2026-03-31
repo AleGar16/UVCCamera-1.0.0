@@ -52,6 +52,8 @@ import java.util.Locale;
 
 public class UsbUvcCamera extends CordovaPlugin {
     private static final String TAG = "UsbUvcCamera";
+    private static final int UVC_EXPOSURE_MODE_MANUAL = 1;
+    private static final int UVC_EXPOSURE_MODE_AUTO = 2;
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
@@ -147,12 +149,33 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
                 return true;
             case "applyStableCameraProfile":
-                callbackContext.success("noop");
-                return true;
+                return applyStableCameraProfile(args, callbackContext);
             case "listUsbDevices":
                 return listUsbDevices(callbackContext);
             case "getCameraCapabilities":
                 return getCameraCapabilities(callbackContext);
+            case "setAutoFocus":
+                return setAutoFocus(args, callbackContext);
+            case "setFocus":
+                return setFocus(args, callbackContext);
+            case "setZoom":
+                return setZoom(args, callbackContext);
+            case "setBrightness":
+                return setBrightness(args, callbackContext);
+            case "setContrast":
+                return setContrast(args, callbackContext);
+            case "setSharpness":
+                return setSharpness(args, callbackContext);
+            case "setGain":
+                return setGain(args, callbackContext);
+            case "setAutoExposure":
+                return setAutoExposure(args, callbackContext);
+            case "setExposure":
+                return setExposure(args, callbackContext);
+            case "setAutoWhiteBalance":
+                return setAutoWhiteBalance(args, callbackContext);
+            case "setWhiteBalance":
+                return setWhiteBalance(args, callbackContext);
             default:
                 return false;
         }
@@ -414,6 +437,8 @@ public class UsbUvcCamera extends CordovaPlugin {
             current.put("autoFocus", uvcCamera.getAutoFocus());
             current.put("focus", uvcCamera.getFocus());
             current.put("zoom", uvcCamera.getZoom());
+            current.put("autoExposure", getAutoExposure(uvcCamera));
+            current.put("exposure", getExposurePercent(uvcCamera));
             current.put("brightness", uvcCamera.getBrightness());
             current.put("contrast", uvcCamera.getContrast());
             current.put("sharpness", uvcCamera.getSharpness());
@@ -429,6 +454,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             JSONObject ranges = new JSONObject();
             ranges.put("focus", buildRangeJson(uvcCamera, "mFocusMin", "mFocusMax", "mFocusDef"));
             ranges.put("zoom", buildRangeJson(uvcCamera, "mZoomMin", "mZoomMax", "mZoomDef"));
+            ranges.put("exposure", buildRangeJson(uvcCamera, "mExposureMin", "mExposureMax", "mExposureDef"));
             ranges.put("brightness", buildRangeJson(uvcCamera, "mBrightnessMin", "mBrightnessMax", "mBrightnessDef"));
             ranges.put("contrast", buildRangeJson(uvcCamera, "mContrastMin", "mContrastMax", "mContrastDef"));
             ranges.put("sharpness", buildRangeJson(uvcCamera, "mSharpnessMin", "mSharpnessMax", "mSharpnessDef"));
@@ -443,6 +469,48 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception exception) {
             Log.e(TAG, "getCameraCapabilities failed", exception);
             callbackContext.error("getCameraCapabilities failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
+    private boolean applyStableCameraProfile(JSONArray args, CallbackContext callbackContext) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+
+            JSONObject options = args.optJSONObject(0);
+            boolean autoFocus = options != null && options.has("autoFocus") ? options.optBoolean("autoFocus", false) : false;
+            int focus = options != null ? clampPercent(options.optInt("focus", 0)) : 0;
+            boolean autoExposure = options != null && options.has("autoExposure") ? options.optBoolean("autoExposure", true) : true;
+            int exposure = options != null ? clampPercent(options.optInt("exposure", 50)) : 50;
+            boolean autoWhiteBalance = options != null && options.has("autoWhiteBalance") ? options.optBoolean("autoWhiteBalance", true) : true;
+            int whiteBalance = options != null ? clampPercent(options.optInt("whiteBalance", 50)) : 50;
+            int brightness = options != null ? clampPercent(options.optInt("brightness", 50)) : 50;
+            int contrast = options != null ? clampPercent(options.optInt("contrast", 50)) : 50;
+            int sharpness = options != null ? clampPercent(options.optInt("sharpness", 50)) : 50;
+
+            uvcCamera.setAutoFocus(autoFocus);
+            if (!autoFocus) {
+                uvcCamera.setFocus(focus);
+            }
+            setAutoExposureInternal(uvcCamera, autoExposure);
+            if (!autoExposure) {
+                setExposureInternal(uvcCamera, exposure);
+            }
+            uvcCamera.setAutoWhiteBlance(autoWhiteBalance);
+            if (!autoWhiteBalance) {
+                uvcCamera.setWhiteBlance(whiteBalance);
+            }
+            uvcCamera.setBrightness(brightness);
+            uvcCamera.setContrast(contrast);
+            uvcCamera.setSharpness(sharpness);
+
+            callbackContext.success("stable-profile-applied");
+        } catch (Exception exception) {
+            Log.e(TAG, "applyStableCameraProfile failed", exception);
+            callbackContext.error("applyStableCameraProfile failed: " + exception.getMessage());
         }
         return true;
     }
@@ -795,6 +863,112 @@ public class UsbUvcCamera extends CordovaPlugin {
         return null;
     }
 
+    private boolean setAutoFocus(JSONArray args, CallbackContext callbackContext) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            boolean enabled = args.optBoolean(0, true);
+            uvcCamera.setAutoFocus(enabled);
+            callbackContext.success("ok");
+        } catch (Exception exception) {
+            callbackContext.error("setAutoFocus failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
+    private boolean setFocus(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setFocus");
+    }
+
+    private boolean setZoom(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setZoom");
+    }
+
+    private boolean setBrightness(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setBrightness");
+    }
+
+    private boolean setContrast(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setContrast");
+    }
+
+    private boolean setSharpness(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setSharpness");
+    }
+
+    private boolean setGain(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setGain");
+    }
+
+    private boolean setAutoExposure(JSONArray args, CallbackContext callbackContext) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            boolean enabled = args.optBoolean(0, true);
+            setAutoExposureInternal(uvcCamera, enabled);
+            callbackContext.success("ok");
+        } catch (Exception exception) {
+            Log.e(TAG, "setAutoExposure failed", exception);
+            callbackContext.error("setAutoExposure failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
+    private boolean setExposure(JSONArray args, CallbackContext callbackContext) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            int value = clampPercent(args.optInt(0, 0));
+            setExposureInternal(uvcCamera, value);
+            callbackContext.success("ok");
+        } catch (Exception exception) {
+            Log.e(TAG, "setExposure failed", exception);
+            callbackContext.error("setExposure failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
+    private boolean setAutoWhiteBalance(JSONArray args, CallbackContext callbackContext) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            boolean enabled = args.optBoolean(0, true);
+            uvcCamera.setAutoWhiteBlance(enabled);
+            callbackContext.success("ok");
+        } catch (Exception exception) {
+            callbackContext.error("setAutoWhiteBalance failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
+    private boolean setWhiteBalance(JSONArray args, CallbackContext callbackContext) {
+        return setPercentControl(args, callbackContext, "setWhiteBlance");
+    }
+
+    private boolean setPercentControl(JSONArray args, CallbackContext callbackContext, String methodName) {
+        try {
+            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+            if (uvcCamera == null) {
+                return true;
+            }
+            int value = clampPercent(args.optInt(0, 0));
+            UVCCamera.class.getMethod(methodName, int.class).invoke(uvcCamera, value);
+            callbackContext.success("ok");
+        } catch (Exception exception) {
+            Log.e(TAG, methodName + " failed", exception);
+            callbackContext.error(methodName + " failed: " + exception.getMessage());
+        }
+        return true;
+    }
+
     private UVCCamera getUnderlyingUvcCamera() {
         if (currentCamera == null) {
             return null;
@@ -812,6 +986,82 @@ public class UsbUvcCamera extends CordovaPlugin {
         return null;
     }
 
+    private UVCCamera requireOpenedUvcCamera(CallbackContext callbackContext) {
+        if (currentCamera == null || !currentCamera.isCameraOpened()) {
+            callbackContext.error("USB UVC camera not opened");
+            return null;
+        }
+        UVCCamera uvcCamera = getUnderlyingUvcCamera();
+        if (uvcCamera == null) {
+            callbackContext.error("Underlying UVCCamera not available");
+            return null;
+        }
+        return uvcCamera;
+    }
+
+    private void setAutoExposureInternal(UVCCamera uvcCamera, boolean enabled) throws Exception {
+        invokeDeclaredVoidMethod(uvcCamera, "nativeUpdateExposureModeLimit");
+        invokeDeclaredVoidMethod(uvcCamera, "nativeSetExposureMode", enabled ? UVC_EXPOSURE_MODE_AUTO : UVC_EXPOSURE_MODE_MANUAL);
+    }
+
+    private void setExposureInternal(UVCCamera uvcCamera, int percent) throws Exception {
+        invokeDeclaredVoidMethod(uvcCamera, "nativeUpdateExposureLimit");
+        int min = getIntField(uvcCamera, "mExposureMin");
+        int max = getIntField(uvcCamera, "mExposureMax");
+        int absoluteValue = scalePercentToAbsolute(percent, min, max);
+        invokeDeclaredVoidMethod(uvcCamera, "nativeSetExposure", absoluteValue);
+    }
+
+    private boolean getAutoExposure(UVCCamera uvcCamera) {
+        try {
+            int mode = invokeDeclaredIntMethod(uvcCamera, "nativeGetExposureMode");
+            return mode != UVC_EXPOSURE_MODE_MANUAL;
+        } catch (Exception exception) {
+            Log.w(TAG, "getAutoExposure failed", exception);
+            return true;
+        }
+    }
+
+    private int getExposurePercent(UVCCamera uvcCamera) {
+        try {
+            invokeDeclaredVoidMethod(uvcCamera, "nativeUpdateExposureLimit");
+            int exposureAbsolute = invokeDeclaredIntMethod(uvcCamera, "nativeGetExposure");
+            int min = getIntField(uvcCamera, "mExposureMin");
+            int max = getIntField(uvcCamera, "mExposureMax");
+            return scaleAbsoluteToPercent(exposureAbsolute, min, max);
+        } catch (Exception exception) {
+            Log.w(TAG, "getExposurePercent failed", exception);
+            return 0;
+        }
+    }
+
+    private int clampPercent(int value) {
+        if (value < 0) {
+            return 0;
+        }
+        if (value > 100) {
+            return 100;
+        }
+        return value;
+    }
+
+    private int scalePercentToAbsolute(int percent, int min, int max) {
+        int clampedPercent = clampPercent(percent);
+        float range = Math.abs(max - min);
+        if (range <= 0) {
+            return min;
+        }
+        return (int) ((clampedPercent / 100.0f) * range) + min;
+    }
+
+    private int scaleAbsoluteToPercent(int absoluteValue, int min, int max) {
+        float range = Math.abs(max - min);
+        if (range <= 0) {
+            return 0;
+        }
+        return clampPercent((int) ((absoluteValue - min) * 100.0f / range));
+    }
+
     private JSONObject buildRangeJson(UVCCamera camera, String minField, String maxField, String defField) throws Exception {
         JSONObject range = new JSONObject();
         range.put("min", getIntField(camera, minField));
@@ -824,6 +1074,34 @@ public class UsbUvcCamera extends CordovaPlugin {
         Field field = UVCCamera.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         return field.getInt(camera);
+    }
+
+    private void invokeDeclaredVoidMethod(UVCCamera camera, String methodName) throws Exception {
+        java.lang.reflect.Method method = UVCCamera.class.getDeclaredMethod(methodName, long.class);
+        method.setAccessible(true);
+        Field nativePtrField = UVCCamera.class.getDeclaredField("mNativePtr");
+        nativePtrField.setAccessible(true);
+        long nativePtr = nativePtrField.getLong(camera);
+        method.invoke(camera, nativePtr);
+    }
+
+    private void invokeDeclaredVoidMethod(UVCCamera camera, String methodName, int value) throws Exception {
+        java.lang.reflect.Method method = UVCCamera.class.getDeclaredMethod(methodName, long.class, int.class);
+        method.setAccessible(true);
+        Field nativePtrField = UVCCamera.class.getDeclaredField("mNativePtr");
+        nativePtrField.setAccessible(true);
+        long nativePtr = nativePtrField.getLong(camera);
+        method.invoke(camera, nativePtr, value);
+    }
+
+    private int invokeDeclaredIntMethod(UVCCamera camera, String methodName) throws Exception {
+        java.lang.reflect.Method method = UVCCamera.class.getDeclaredMethod(methodName, long.class);
+        method.setAccessible(true);
+        Field nativePtrField = UVCCamera.class.getDeclaredField("mNativePtr");
+        nativePtrField.setAccessible(true);
+        long nativePtr = nativePtrField.getLong(camera);
+        Object result = method.invoke(camera, nativePtr);
+        return result instanceof Integer ? (Integer) result : 0;
     }
 
     private String encodePreviewFrameAsBase64(byte[] data, int width, int height) {

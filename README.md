@@ -45,4 +45,47 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.close(success, error)`
 - `navigator.usbUvcCamera.listUsbDevices(success, error)`
 - `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
+- `navigator.usbUvcCamera.setAutoFocus(enabled, success, error)`
+- `navigator.usbUvcCamera.setFocus(value, success, error)`
+- `navigator.usbUvcCamera.setZoom(value, success, error)`
+- `navigator.usbUvcCamera.setBrightness(value, success, error)`
+- `navigator.usbUvcCamera.setContrast(value, success, error)`
+- `navigator.usbUvcCamera.setSharpness(value, success, error)`
+- `navigator.usbUvcCamera.setGain(value, success, error)`
+- `navigator.usbUvcCamera.setAutoExposure(enabled, success, error)`
+- `navigator.usbUvcCamera.setExposure(value, success, error)`
+- `navigator.usbUvcCamera.setAutoWhiteBalance(enabled, success, error)`
+- `navigator.usbUvcCamera.setWhiteBalance(value, success, error)`
 - `navigator.usbUvcCamera.applyStableCameraProfile(options, success, error)`
+
+## Controlli UVC
+
+I setter numerici attuali accettano valori percentuali `0-100`.
+
+Il plugin li rimappa ai metodi UVC della libreria sottostante per:
+
+- focus
+- zoom
+- brightness
+- contrast
+- sharpness
+- gain
+- exposure
+- white balance
+
+I controlli booleani disponibili sono:
+
+- autofocus on/off
+- auto white balance on/off
+
+Esempio:
+
+```javascript
+navigator.usbUvcCamera.setAutoFocus(false, console.log, console.error);
+navigator.usbUvcCamera.setFocus(40, console.log, console.error);
+navigator.usbUvcCamera.setZoom(0, console.log, console.error);
+navigator.usbUvcCamera.setAutoExposure(false, console.log, console.error);
+navigator.usbUvcCamera.setExposure(35, console.log, console.error);
+navigator.usbUvcCamera.setAutoWhiteBalance(false, console.log, console.error);
+navigator.usbUvcCamera.setWhiteBalance(55, console.log, console.error);
+```

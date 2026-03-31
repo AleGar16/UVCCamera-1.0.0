@@ -248,6 +248,52 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 17. Esposizione setter UVC lato plugin JS
+
+- Richiesta/problema:
+  dopo la diagnostica delle capability serviva poter richiamare davvero dall'app i controlli UVC gia' presenti nel backend Java.
+- Modifica fatta:
+  nel bridge `www/usbUvcCamera.js` sono stati esposti:
+  - `setAutoFocus`
+  - `setFocus`
+  - `setZoom`
+  - `setBrightness`
+  - `setContrast`
+  - `setSharpness`
+  - `setGain`
+  - `setAutoWhiteBalance`
+  - `setWhiteBalance`
+
+  Inoltre e' stata aggiornata la documentazione in `README.md`.
+- Motivo tecnico:
+  il backend Android standalone aveva gia' i setter principali, ma senza wrapper JS non erano invocabili in modo pulito dall'app Cordova.
+- Stato:
+  completato in codice, da validare a runtime.
+
+### 18. Setter exposure nel backend UVC
+
+- Richiesta/problema:
+  serviva poter cambiare esposizione e auto esposizione a runtime direttamente dall'app, come per focus e zoom.
+- Modifica fatta:
+  nel backend Android `UsbUvcCamera.java` sono stati aggiunti:
+  - `setAutoExposure`
+  - `setExposure`
+
+  Inoltre `getCameraCapabilities()` ora restituisce anche:
+  - `current.autoExposure`
+  - `current.exposure`
+  - `ranges.exposure`
+
+  `applyStableCameraProfile()` e' stato esteso per gestire anche:
+  - `autoExposure`
+  - `exposure`
+
+  Nel bridge `www/usbUvcCamera.js` sono stati aggiunti i wrapper JS corrispondenti.
+- Motivo tecnico:
+  la libreria UVC usata espone l'esposizione tramite metodi nativi interni, quindi il plugin la gestisce via reflection sul backend `UVCCamera` per restare coerente con il resto dei controlli runtime.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
