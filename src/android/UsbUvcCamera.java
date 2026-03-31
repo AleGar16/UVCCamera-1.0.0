@@ -33,6 +33,7 @@ import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
 import com.serenegiant.usb.USBMonitor;
+import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.json.JSONException;
@@ -150,6 +151,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             case "listUsbDevices":
                 return listUsbDevices(callbackContext);
+            case "getCameraCapabilities":
+                return getCameraCapabilities(callbackContext);
             default:
                 return false;
         }
@@ -364,6 +367,82 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception e) {
             Log.e(TAG, "Error listing USB devices", e);
             callbackContext.error("Error listing USB devices: " + e.getMessage());
+        }
+        return true;
+    }
+
+    private boolean getCameraCapabilities(CallbackContext callbackContext) {
+        try {
+            if (currentCamera == null || !currentCamera.isCameraOpened()) {
+                callbackContext.error("USB UVC camera not opened");
+                return true;
+            }
+
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null) {
+                callbackContext.error("Underlying UVCCamera not available");
+                return true;
+            }
+
+            uvcCamera.updateCameraParams();
+
+            JSONObject result = new JSONObject();
+            result.put("deviceName", currentDevice != null ? currentDevice.getDeviceName() : JSONObject.NULL);
+            result.put("vendorId", currentDevice != null ? currentDevice.getVendorId() : JSONObject.NULL);
+            result.put("productId", currentDevice != null ? currentDevice.getProductId() : JSONObject.NULL);
+
+            JSONObject support = new JSONObject();
+            support.put("focusAuto", uvcCamera.checkSupportFlag(UVCCamera.CTRL_FOCUS_AUTO));
+            support.put("focusAbsolute", uvcCamera.checkSupportFlag(UVCCamera.CTRL_FOCUS_ABS));
+            support.put("zoomAbsolute", uvcCamera.checkSupportFlag(UVCCamera.CTRL_ZOOM_ABS));
+            support.put("exposureAuto", uvcCamera.checkSupportFlag(UVCCamera.CTRL_AE));
+            support.put("exposureAbsolute", uvcCamera.checkSupportFlag(UVCCamera.CTRL_AE_ABS));
+            support.put("brightness", uvcCamera.checkSupportFlag(UVCCamera.PU_BRIGHTNESS));
+            support.put("contrast", uvcCamera.checkSupportFlag(UVCCamera.PU_CONTRAST));
+            support.put("sharpness", uvcCamera.checkSupportFlag(UVCCamera.PU_SHARPNESS));
+            support.put("gain", uvcCamera.checkSupportFlag(UVCCamera.PU_GAIN));
+            support.put("gamma", uvcCamera.checkSupportFlag(UVCCamera.PU_GAMMA));
+            support.put("saturation", uvcCamera.checkSupportFlag(UVCCamera.PU_SATURATION));
+            support.put("hue", uvcCamera.checkSupportFlag(UVCCamera.PU_HUE));
+            support.put("whiteBalanceAuto", uvcCamera.checkSupportFlag(UVCCamera.PU_WB_TEMP_AUTO));
+            support.put("whiteBalance", uvcCamera.checkSupportFlag(UVCCamera.PU_WB_TEMP));
+            support.put("backlight", uvcCamera.checkSupportFlag(UVCCamera.PU_BACKLIGHT));
+            support.put("powerLineFrequency", uvcCamera.checkSupportFlag(UVCCamera.PU_POWER_LF));
+            result.put("support", support);
+
+            JSONObject current = new JSONObject();
+            current.put("autoFocus", uvcCamera.getAutoFocus());
+            current.put("focus", uvcCamera.getFocus());
+            current.put("zoom", uvcCamera.getZoom());
+            current.put("brightness", uvcCamera.getBrightness());
+            current.put("contrast", uvcCamera.getContrast());
+            current.put("sharpness", uvcCamera.getSharpness());
+            current.put("gain", uvcCamera.getGain());
+            current.put("gamma", uvcCamera.getGamma());
+            current.put("saturation", uvcCamera.getSaturation());
+            current.put("hue", uvcCamera.getHue());
+            current.put("autoWhiteBalance", uvcCamera.getAutoWhiteBlance());
+            current.put("whiteBalance", uvcCamera.getWhiteBlance());
+            current.put("powerLineFrequency", uvcCamera.getPowerlineFrequency());
+            result.put("current", current);
+
+            JSONObject ranges = new JSONObject();
+            ranges.put("focus", buildRangeJson(uvcCamera, "mFocusMin", "mFocusMax", "mFocusDef"));
+            ranges.put("zoom", buildRangeJson(uvcCamera, "mZoomMin", "mZoomMax", "mZoomDef"));
+            ranges.put("brightness", buildRangeJson(uvcCamera, "mBrightnessMin", "mBrightnessMax", "mBrightnessDef"));
+            ranges.put("contrast", buildRangeJson(uvcCamera, "mContrastMin", "mContrastMax", "mContrastDef"));
+            ranges.put("sharpness", buildRangeJson(uvcCamera, "mSharpnessMin", "mSharpnessMax", "mSharpnessDef"));
+            ranges.put("gain", buildRangeJson(uvcCamera, "mGainMin", "mGainMax", "mGainDef"));
+            ranges.put("gamma", buildRangeJson(uvcCamera, "mGammaMin", "mGammaMax", "mGammaDef"));
+            ranges.put("saturation", buildRangeJson(uvcCamera, "mSaturationMin", "mSaturationMax", "mSaturationDef"));
+            ranges.put("hue", buildRangeJson(uvcCamera, "mHueMin", "mHueMax", "mHueDef"));
+            ranges.put("whiteBalance", buildRangeJson(uvcCamera, "mWhiteBlanceMin", "mWhiteBlanceMax", "mWhiteBlanceDef"));
+            result.put("ranges", ranges);
+
+            callbackContext.success(result);
+        } catch (Exception exception) {
+            Log.e(TAG, "getCameraCapabilities failed", exception);
+            callbackContext.error("getCameraCapabilities failed: " + exception.getMessage());
         }
         return true;
     }
@@ -714,6 +793,37 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         return null;
+    }
+
+    private UVCCamera getUnderlyingUvcCamera() {
+        if (currentCamera == null) {
+            return null;
+        }
+        try {
+            Field uvcCameraField = MultiCameraClient.Camera.class.getDeclaredField("mUvcCamera");
+            uvcCameraField.setAccessible(true);
+            Object underlying = uvcCameraField.get(currentCamera);
+            if (underlying instanceof UVCCamera) {
+                return (UVCCamera) underlying;
+            }
+        } catch (Exception exception) {
+            Log.e(TAG, "getUnderlyingUvcCamera failed", exception);
+        }
+        return null;
+    }
+
+    private JSONObject buildRangeJson(UVCCamera camera, String minField, String maxField, String defField) throws Exception {
+        JSONObject range = new JSONObject();
+        range.put("min", getIntField(camera, minField));
+        range.put("max", getIntField(camera, maxField));
+        range.put("default", getIntField(camera, defField));
+        return range;
+    }
+
+    private int getIntField(UVCCamera camera, String fieldName) throws Exception {
+        Field field = UVCCamera.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.getInt(camera);
     }
 
     private String encodePreviewFrameAsBase64(byte[] data, int width, int height) {

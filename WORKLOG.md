@@ -234,6 +234,20 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 16. Diagnostica capability UVC
+
+- Richiesta/problema:
+  serviva conoscere tutte le caratteristiche realmente esposte dalla webcam sul totem prima di implementare focus/exposure/zoom.
+- Modifica fatta:
+  e' stata aggiunta la funzione `getCameraCapabilities()`:
+  - legge support flag UVC
+  - legge i valori correnti
+  - legge i range min/max/default principali via reflection su `UVCCamera`
+- Motivo tecnico:
+  implementare i controlli solo dopo aver verificato cosa la C920 espone davvero in questo ambiente specifico.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

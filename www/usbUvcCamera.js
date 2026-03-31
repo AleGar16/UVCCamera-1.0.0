@@ -21,6 +21,10 @@ module.exports = {
         exec(success, error, 'UsbUvcCamera', 'listUsbDevices', []);
     },
 
+    getCameraCapabilities: function(success, error) {
+        exec(success, error, 'UsbUvcCamera', 'getCameraCapabilities', []);
+    },
+
     applyStableCameraProfile: function(options, success, error) {
         exec(success, error, 'UsbUvcCamera', 'applyStableCameraProfile', [options || {}]);
     }

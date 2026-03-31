@@ -44,4 +44,5 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.recoverCamera(success, error)`
 - `navigator.usbUvcCamera.close(success, error)`
 - `navigator.usbUvcCamera.listUsbDevices(success, error)`
+- `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
 - `navigator.usbUvcCamera.applyStableCameraProfile(options, success, error)`
