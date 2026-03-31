@@ -1078,6 +1078,10 @@ public class UsbUvcCamera extends CordovaPlugin {
                 public void onCameraState(MultiCameraClient.Camera self, State code, String msg) {
                     Log.i(TAG, "onCameraState code=" + code + ", msg=" + msg);
                     if (code == State.OPENED) {
+                        UVCCamera uvcCamera = getUnderlyingUvcCamera();
+                        if (uvcCamera != null) {
+                            configureUnderlyingPreviewStream(uvcCamera);
+                        }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
                         logPreviewSizes("available-preview-sizes", currentPreviewSizes);
                         openingCamera = false;
@@ -1490,6 +1494,103 @@ public class UsbUvcCamera extends CordovaPlugin {
             builder.append(size.getWidth()).append("x").append(size.getHeight());
         }
         Log.i(TAG, label + ": " + builder);
+    }
+
+    private void configureUnderlyingPreviewStream(UVCCamera uvcCamera) {
+        if (uvcCamera == null) {
+            return;
+        }
+        try {
+            int frameFormat = resolvePreferredFrameFormat(uvcCamera);
+            Log.i(TAG, "Configuring underlying UVCCamera preview stream width=" + previewWidth
+                    + ", height=" + previewHeight + ", frameFormat=" + frameFormat
+                    + ", preferMjpeg=" + preferMjpeg);
+            uvcCamera.stopPreview();
+            invokeSetPreviewSizePreferSpecificOverload(uvcCamera, previewWidth, previewHeight, frameFormat);
+            if (previewView != null && previewView.isAvailable()) {
+                uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
+            }
+            uvcCamera.startPreview();
+            try {
+                Object previewSize = uvcCamera.getPreviewSize();
+                Log.i(TAG, "Underlying UVCCamera preview stream configured, previewSize=" + previewSize);
+            } catch (Exception ignored) {
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to reconfigure underlying UVCCamera preview stream", exception);
+        }
+    }
+
+    private int resolvePreferredFrameFormat(UVCCamera uvcCamera) {
+        if (!preferMjpeg) {
+            return getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_YUYV", 0);
+        }
+        int mjpegFormat = getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_MJPEG", -1);
+        if (mjpegFormat != -1) {
+            return mjpegFormat;
+        }
+        return getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_YUYV", 0);
+    }
+
+    private int getUvcStaticInt(Class<?> type, String fieldName, int fallback) {
+        try {
+            Field field = type.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.getInt(null);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to read UVCCamera static field " + fieldName, exception);
+            return fallback;
+        }
+    }
+
+    private void invokeSetPreviewSizePreferSpecificOverload(UVCCamera uvcCamera, int width, int height, int frameFormat) throws Exception {
+        List<java.lang.reflect.Method> candidates = new ArrayList<>();
+        for (java.lang.reflect.Method method : UVCCamera.class.getMethods()) {
+            if ("setPreviewSize".equals(method.getName())) {
+                candidates.add(method);
+            }
+        }
+
+        java.lang.reflect.Method selected = null;
+        for (java.lang.reflect.Method candidate : candidates) {
+            Class<?>[] parameterTypes = candidate.getParameterTypes();
+            if (parameterTypes.length >= 3
+                    && parameterTypes[0] == int.class
+                    && parameterTypes[1] == int.class
+                    && parameterTypes[2] == int.class) {
+                selected = candidate;
+                break;
+            }
+        }
+
+        if (selected == null) {
+            Log.w(TAG, "No UVCCamera.setPreviewSize overload with frameFormat found, falling back to setPreviewSize(width,height)");
+            uvcCamera.setPreviewSize(width, height);
+            return;
+        }
+
+        Class<?>[] parameterTypes = selected.getParameterTypes();
+        Object[] args = new Object[parameterTypes.length];
+        args[0] = width;
+        args[1] = height;
+        args[2] = frameFormat;
+        for (int i = 3; i < parameterTypes.length; i++) {
+            if (parameterTypes[i] == int.class) {
+                if (i == 3) {
+                    args[i] = getUvcStaticInt(UVCCamera.class, "DEFAULT_PREVIEW_FRAME_INTERVAL", 1);
+                } else if (i == 4) {
+                    args[i] = getUvcStaticInt(UVCCamera.class, "DEFAULT_PREVIEW_BANDWIDTH", 1);
+                } else {
+                    args[i] = 1;
+                }
+            } else if (parameterTypes[i] == float.class) {
+                args[i] = 1.0f;
+            } else {
+                throw new IllegalStateException("Unsupported UVCCamera.setPreviewSize parameter type: " + parameterTypes[i]);
+            }
+        }
+        Log.i(TAG, "Invoking UVCCamera.setPreviewSize overload=" + buildMethodSignature(selected));
+        selected.invoke(uvcCamera, args);
     }
 
     private void applyPreferredCameraRequestOptions(CameraRequest.Builder requestBuilder) {

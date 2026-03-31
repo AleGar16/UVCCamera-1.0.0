@@ -713,6 +713,31 @@ Formato usato:
 - Stato:
   completato in codice, da eseguire a runtime sul totem.
 
+### 42. Tentativo di forzare MJPEG/high-res dal livello UVCCamera basso
+
+- Richiesta/problema:
+  l'introspezione runtime ha mostrato che `CameraRequest.Builder` e' troppo povero nella `3.2.7` realmente caricata, ma `UVCCamera` espone ancora:
+  - `FRAME_FORMAT_MJPEG`
+  - `FRAME_FORMAT_YUYV`
+  - vari overload di `setPreviewSize(...)`
+  - `startPreview()` / `stopPreview()`
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`, quando la camera entra in `OPENED`, il plugin ora prova a:
+  - recuperare `UVCCamera` sottostante
+  - fermare la preview
+  - chiamare `setPreviewSize(...)` con `FRAME_FORMAT_MJPEG` se `preferMjpeg=true`
+  - riassociare la `TextureView`
+  - riavviare la preview
+
+  Il tutto con reflection e logging esplicito dell'overload scelto.
+- Motivo tecnico:
+  dato che la C920 non espone still descriptors ma dichiara stream MJPEG fino a `1920x1080`, questa e' la prima leva concreta rimasta per provare a negoziare davvero uno stream high-res nello stack esistente.
+- Stato:
+  completato in codice, da validare a runtime guardando:
+  - log di `Configuring underlying UVCCamera preview stream ...`
+  - overload `setPreviewSize(...)` usato
+  - dimensione finale del JPEG di `takePhoto()`
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
