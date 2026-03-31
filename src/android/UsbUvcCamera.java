@@ -46,6 +46,7 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.nio.ByteBuffer;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -99,6 +100,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingPhotoTimeout;
     private Runnable pendingReconnect;
+    private Object underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
@@ -1214,6 +1216,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (currentCamera != null) {
             try {
                 Log.i(TAG, "Releasing currentCamera");
+                clearUnderlyingFrameCallback();
                 currentCamera.closeCamera();
             } catch (Exception ignored) {
             }
@@ -1573,6 +1576,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 if (previewView != null && previewView.isAvailable()) {
                     uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
                 }
+                installUnderlyingFrameCallback(uvcCamera);
                 uvcCamera.startPreview();
                 int[] negotiated = getNegotiatedPreviewSize();
                 Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
@@ -1586,6 +1590,55 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to reconfigure underlying UVCCamera preview stream", exception);
+        }
+    }
+
+    private void installUnderlyingFrameCallback(UVCCamera uvcCamera) {
+        if (uvcCamera == null) {
+            return;
+        }
+        try {
+            Class<?> callbackInterface = Class.forName("com.serenegiant.usb.IFrameCallback");
+            underlyingFrameCallback = java.lang.reflect.Proxy.newProxyInstance(
+                    callbackInterface.getClassLoader(),
+                    new Class<?>[] { callbackInterface },
+                    (proxy, method, args) -> {
+                        if (method != null && "onFrame".equals(method.getName()) && args != null && args.length > 0 && args[0] instanceof ByteBuffer) {
+                            ByteBuffer buffer = (ByteBuffer) args[0];
+                            ByteBuffer copy = buffer.duplicate();
+                            byte[] bytes = new byte[copy.remaining()];
+                            copy.get(bytes);
+                            synchronized (previewFrameLock) {
+                                latestPreviewFrame = bytes;
+                            }
+                        }
+                        return null;
+                    }
+            );
+
+            java.lang.reflect.Method setFrameCallbackMethod = UVCCamera.class.getMethod("setFrameCallback", callbackInterface, int.class);
+            int pixelFormat = getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_NV21",
+                    getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_YUV420SP", 4));
+            setFrameCallbackMethod.invoke(uvcCamera, underlyingFrameCallback, pixelFormat);
+            Log.i(TAG, "Installed underlying UVCCamera frame callback with pixelFormat=" + pixelFormat);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to install underlying UVCCamera frame callback", exception);
+        }
+    }
+
+    private void clearUnderlyingFrameCallback() {
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null) {
+                underlyingFrameCallback = null;
+                return;
+            }
+            Class<?> callbackInterface = Class.forName("com.serenegiant.usb.IFrameCallback");
+            java.lang.reflect.Method setFrameCallbackMethod = UVCCamera.class.getMethod("setFrameCallback", callbackInterface, int.class);
+            setFrameCallbackMethod.invoke(uvcCamera, new Object[] { null, 0 });
+        } catch (Exception ignored) {
+        } finally {
+            underlyingFrameCallback = null;
         }
     }
 
