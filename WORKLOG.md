@@ -484,6 +484,39 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 30. Tentativo di scatto high-res reale tramite file capture
+
+- Richiesta/problema:
+  il callback preview usato per `takePhoto()` resta a `640x480` anche quando la camera espone size molto piu' alte.
+- Modifica fatta:
+  `takePhoto()` ora prova prima un percorso high-res:
+  - lancia `captureImage()` verso file JPEG
+  - non si fida del callback finale della libreria
+  - fa polling del file creato
+  - se il file compare e ha dimensione valida, lo restituisce in base64
+
+  Se il file non compare in tempo o il flusso high-res fallisce, mantiene il fallback precedente dal frame preview.
+- Motivo tecnico:
+  la libreria AUSBC sembrava bloccare i callback di `captureImage()` ma al tempo stesso mostrava segnali di compressione JPEG interna; il polling del file permette di verificare se il vero scatto high-res avviene comunque, senza dipendere dal callback di completamento.
+- Stato:
+  completato in codice, da validare a runtime.
+
+### 31. Scelta preview size resa piu' prudente
+
+- Richiesta/problema:
+  forzando sempre la size piu' alta disponibile, in alcuni run `openCamera()` falliva con `unsupported preview size`.
+- Modifica fatta:
+  la selezione della preview size ora segue questo ordine:
+  1. size richiesta dall'app
+  2. fallback noti e piu' realistici (`1280x720`, `960x720`, `1024x576`, `864x480`, `800x600`, `640x480`)
+  3. solo in ultima istanza la size piu' alta dichiarata dal backend
+
+  Inoltre il plugin conserva separatamente la size richiesta originaria (`requestedPreviewWidth` / `requestedPreviewHeight`).
+- Motivo tecnico:
+  alcune size compaiono nella lista del backend ma poi non risultano apribili davvero nel percorso preview usato; questa strategia riduce i falsi positivi senza rinunciare a provare risoluzioni piu' alte di `640x480`.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

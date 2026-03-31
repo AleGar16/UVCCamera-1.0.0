@@ -43,6 +43,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -58,6 +59,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
+    private static final int HIGH_RES_CAPTURE_POLL_INTERVAL_MS = 200;
+    private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
     private static final int OPEN_RETRY_DELAY_MS = 600;
     private static final int MAX_OPEN_RETRIES = 2;
@@ -75,6 +78,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int previewViewY = 0;
     private int previewViewWidth = 1;
     private int previewViewHeight = 1;
+    private int requestedPreviewWidth = 1280;
+    private int requestedPreviewHeight = 720;
     private int preferredVendorId = -1;
     private int preferredProductId = -1;
     private boolean previewSurfaceReady = false;
@@ -203,6 +208,8 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (options != null) {
             previewWidth = options.optInt("width", 1280);
             previewHeight = options.optInt("height", 720);
+            requestedPreviewWidth = previewWidth;
+            requestedPreviewHeight = previewHeight;
             preferHighestResolution = options.optBoolean("preferHighestResolution", true);
             String preferredId = options.optString("cameraId", null);
             if (preferredId != null && preferredId.startsWith("uvc:")) {
@@ -330,8 +337,97 @@ public class UsbUvcCamera extends CordovaPlugin {
         Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
         schedulePhotoTimeout();
-        attemptTakePhoto(photoFile, 1);
+        attemptHighResTakePhoto(photoFile, 1);
         return true;
+    }
+
+    private void attemptHighResTakePhoto(File photoFile, int attempt) {
+        Log.d(TAG, "attemptHighResTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
+        refreshCurrentDeviceReference();
+        if (currentCamera == null) {
+            if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.d(TAG, "Camera instance missing before high-res photo, trying reopen, attempt " + attempt);
+                ensureCameraClient();
+                safeRegisterCameraClient();
+                cameraClient.requestPermission(currentDevice);
+                mainHandler.postDelayed(() -> attemptHighResTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+                return;
+            }
+            failPendingPhoto("USB UVC camera not initialized");
+            return;
+        }
+
+        if (!currentCamera.isCameraOpened()) {
+            if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.w(TAG, "Camera still not opened before high-res photo after retries");
+                failPendingPhoto("USB UVC camera not opened");
+                return;
+            }
+            Log.d(TAG, "Camera not ready for high-res photo yet, retry attempt " + attempt);
+            mainHandler.postDelayed(() -> attemptHighResTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            return;
+        }
+
+        if (photoFile.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            photoFile.delete();
+        }
+
+        try {
+            Log.i(TAG, "Starting high-res captureImage flow");
+            currentCamera.captureImage(photoFile.getAbsolutePath(), new ICaptureCallBack() {
+                @Override
+                public void onBegin() {
+                    Log.i(TAG, "High-res capture onBegin");
+                }
+
+                @Override
+                public void onComplete(String path) {
+                    Log.i(TAG, "High-res capture onComplete path=" + path);
+                }
+
+                @Override
+                public void onError(String error) {
+                    Log.w(TAG, "High-res capture onError " + error);
+                }
+            });
+            pollHighResCaptureFile(photoFile, 1);
+        } catch (Exception exception) {
+            Log.w(TAG, "High-res captureImage flow failed, falling back to preview frame", exception);
+            attemptTakePhoto(photoFile, 1);
+        }
+    }
+
+    private void pollHighResCaptureFile(File photoFile, int pollAttempt) {
+        if (photoFile.exists() && photoFile.length() >= HIGH_RES_CAPTURE_MIN_BYTES) {
+            Log.i(TAG, "High-res capture file detected size=" + photoFile.length());
+            cordova.getThreadPool().execute(() -> {
+                String encodedImage = encodeFileAsBase64(photoFile);
+                mainHandler.post(() -> {
+                    if (encodedImage == null) {
+                        Log.e(TAG, "High-res capture file encoding failed, falling back to preview");
+                        attemptTakePhoto(photoFile, 1);
+                        return;
+                    }
+                    Log.i(TAG, "High-res capture file base64 encoding complete");
+                    clearPhotoTimeout();
+                    if (photoCallback != null) {
+                        photoCallback.success(encodedImage);
+                        photoCallback = null;
+                    }
+                });
+            });
+            return;
+        }
+
+        int elapsedMs = pollAttempt * HIGH_RES_CAPTURE_POLL_INTERVAL_MS;
+        if (elapsedMs >= TAKE_PHOTO_TIMEOUT_MS) {
+            Log.w(TAG, "High-res capture file not available within timeout, falling back to preview frame");
+            attemptTakePhoto(photoFile, 1);
+            return;
+        }
+
+        mainHandler.postDelayed(() -> pollHighResCaptureFile(photoFile, pollAttempt + 1), HIGH_RES_CAPTURE_POLL_INTERVAL_MS);
     }
 
     private void attemptTakePhoto(File photoFile, int attempt) {
@@ -1043,11 +1139,30 @@ public class UsbUvcCamera extends CordovaPlugin {
             return null;
         }
 
+        PreviewSize requestedSize = findMatchingPreviewSize(sizes, requestedPreviewWidth, requestedPreviewHeight);
         if (!preferHighestResolution) {
-            return findMatchingPreviewSize(sizes, previewWidth, previewHeight);
+            return requestedSize;
         }
 
-        PreviewSize requestedSize = findMatchingPreviewSize(sizes, previewWidth, previewHeight);
+        if (requestedSize != null) {
+            return requestedSize;
+        }
+
+        int[][] preferredFallbacks = new int[][] {
+                {1280, 720},
+                {960, 720},
+                {1024, 576},
+                {864, 480},
+                {800, 600},
+                {640, 480}
+        };
+        for (int[] candidate : preferredFallbacks) {
+            PreviewSize candidateSize = findMatchingPreviewSize(sizes, candidate[0], candidate[1]);
+            if (candidateSize != null) {
+                return candidateSize;
+            }
+        }
+
         PreviewSize highestSize = null;
         int highestPixels = -1;
         for (PreviewSize size : sizes) {
@@ -1060,13 +1175,6 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         if (highestSize == null) {
             return requestedSize;
-        }
-
-        if (requestedSize != null) {
-            int requestedPixels = requestedSize.getWidth() * requestedSize.getHeight();
-            if (requestedPixels >= highestPixels) {
-                return requestedSize;
-            }
         }
 
         return highestSize;
@@ -1426,6 +1534,40 @@ public class UsbUvcCamera extends CordovaPlugin {
         } finally {
             try {
                 outputStream.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private String encodeFileAsBase64(File file) {
+        if (file == null || !file.exists()) {
+            return null;
+        }
+        FileInputStream inputStream = null;
+        ByteArrayOutputStream outputStream = null;
+        try {
+            inputStream = new FileInputStream(file);
+            outputStream = new ByteArrayOutputStream((int) file.length());
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception exception) {
+            Log.e(TAG, "encodeFileAsBase64 failed", exception);
+            return null;
+        } finally {
+            try {
+                if (inputStream != null) {
+                    inputStream.close();
+                }
+            } catch (Exception ignored) {
+            }
+            try {
+                if (outputStream != null) {
+                    outputStream.close();
+                }
             } catch (Exception ignored) {
             }
         }
