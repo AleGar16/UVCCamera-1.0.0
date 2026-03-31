@@ -59,6 +59,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
     private static final int RECONNECT_DELAY_MS = 1200;
+    private static final int OPEN_RETRY_DELAY_MS = 600;
+    private static final int MAX_OPEN_RETRIES = 2;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private UsbDevice currentDevice;
@@ -79,6 +81,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
+    private int openRetryCount = 0;
     private boolean autoReconnectEnabled = false;
     private boolean reconnectScheduled = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -147,6 +150,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
                 openCallback = callbackContext;
                 openingCamera = true;
+                openRetryCount = 0;
                 autoReconnectEnabled = true;
                 ensureCameraClient();
                 if (cameraClient != null) {
@@ -217,6 +221,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         openCallback = callbackContext;
         openingCamera = true;
+        openRetryCount = 0;
         autoReconnectEnabled = true;
         ensureCameraClient();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
@@ -883,13 +888,20 @@ public class UsbUvcCamera extends CordovaPlugin {
                             openCallback = null;
                         }
                     } else if (code == State.ERROR) {
+                        if (shouldRetryOpen(msg)) {
+                            Log.w(TAG, "Retryable UVC open error received: " + msg);
+                            scheduleOpenRetry();
+                            return;
+                        }
                         openingCamera = false;
+                        openRetryCount = 0;
                         if (openCallback != null) {
                             openCallback.error(msg != null ? msg : "Failed to open UVC camera");
                             openCallback = null;
                         }
                     } else if (code == State.CLOSED) {
                         openingCamera = false;
+                        openRetryCount = 0;
                         Log.d(TAG, "UVC camera closed: " + msg);
                     }
                 }
@@ -904,7 +916,13 @@ public class UsbUvcCamera extends CordovaPlugin {
             pendingOpenDevice = null;
             pendingCtrlBlock = null;
         } catch (Exception e) {
+            if (shouldRetryOpen(e.getMessage())) {
+                Log.w(TAG, "Retryable exception while opening connected UVC device", e);
+                scheduleOpenRetry();
+                return;
+            }
             openingCamera = false;
+            openRetryCount = 0;
             Log.e(TAG, "Failed to open connected UVC device", e);
             if (openCallback != null) {
                 openCallback.error("Failed to open connected UVC device: " + e.getMessage());
@@ -1351,6 +1369,52 @@ public class UsbUvcCamera extends CordovaPlugin {
             pendingReconnect = null;
         }
         reconnectScheduled = false;
+    }
+
+    private boolean shouldRetryOpen(String message) {
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("nativeconnect")
+                || normalized.contains("result=-99")
+                || normalized.contains("returned -99");
+    }
+
+    private void scheduleOpenRetry() {
+        if (openRetryCount >= MAX_OPEN_RETRIES) {
+            Log.w(TAG, "UVC open retry limit reached");
+            openingCamera = false;
+            openRetryCount = 0;
+            if (openCallback != null) {
+                openCallback.error("Failed to open UVC camera after retries");
+                openCallback = null;
+            }
+            return;
+        }
+
+        openRetryCount++;
+        closeCurrentCamera(false);
+        refreshCurrentDeviceReference();
+        if (currentDevice == null || cameraClient == null) {
+            openingCamera = false;
+            openRetryCount = 0;
+            if (openCallback != null) {
+                openCallback.error("Unable to retry opening UVC camera: device not available");
+                openCallback = null;
+            }
+            return;
+        }
+
+        Log.i(TAG, "Scheduling UVC open retry " + openRetryCount + " in " + OPEN_RETRY_DELAY_MS + " ms for " + currentDevice.getDeviceName());
+        mainHandler.postDelayed(() -> {
+            if (cameraClient == null || currentDevice == null) {
+                return;
+            }
+            ensureCameraClient();
+            safeRegisterCameraClient();
+            cameraClient.requestPermission(currentDevice);
+        }, OPEN_RETRY_DELAY_MS);
     }
 
     private void tryManualUsbMonitorRegister() {

@@ -409,6 +409,27 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 26. Retry automatico su open UVC con nativeConnect -99
+
+- Richiesta/problema:
+  in alcuni run `openCamera()` falliva con errore nativo del backend UVC:
+  `nativeConnect returned -99`.
+- Modifica fatta:
+  il plugin ora intercetta gli errori di open contenenti:
+  - `nativeConnect`
+  - `result=-99`
+  - `returned -99`
+
+  In questi casi prova automaticamente un reopen pulito:
+  - chiude l'istanza camera corrente
+  - rinfresca il riferimento al device USB
+  - richiede di nuovo il permesso
+  - ritenta l'open fino a 2 volte
+- Motivo tecnico:
+  `-99` e' tipico di uno stato USB/UVC sporco o di un handle non piu' valido; prima il plugin falliva subito, ora prova a recuperare il device senza scaricare il problema sull'applicazione.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
