@@ -20,6 +20,7 @@ Ancora da rifinire:
 - validazione runtime completa sul totem
 - `applyStableCameraProfile()`
 - hardening del recover per test 24/7
+- backend separato per foto high-res reale oltre `640x480`
 
 ## Installazione
 
@@ -116,3 +117,14 @@ navigator.usbUvcCamera.updatePreviewBounds({
 
 navigator.usbUvcCamera.hidePreview(console.log, console.error);
 ```
+
+## Roadmap high-res
+
+Il plugin e' stato impostato per una nuova fase architetturale:
+
+- il backend attuale resta il riferimento per preview e controlli
+- il photo capture high-res verra' separato in un backend dedicato
+
+Dettagli operativi:
+
+- [HIGH_RES_BACKEND_PLAN.md](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/HIGH_RES_BACKEND_PLAN.md)

@@ -552,6 +552,46 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 34. Impostazione architetturale per backend photo high-res separato
+
+- Richiesta/problema:
+  il requisito di qualita' fotografica reale non e' soddisfatto dallo stack AUSBC attuale, che produce ancora JPEG `640x480` anche nel percorso still capture.
+- Modifica fatta:
+  sono stati aggiunti i contratti Java per separare:
+  - preview/control backend
+  - photo capture backend high-res
+
+  File aggiunti:
+  - `HighResPhotoRequest.java`
+  - `HighResPhotoResult.java`
+  - `HighResPhotoCaptureBackend.java`
+  - `PreviewControlBackend.java`
+  - `HIGH_RES_BACKEND_PLAN.md`
+
+  Inoltre `plugin.xml` e `README.md` sono stati aggiornati per riflettere questa nuova fase.
+- Motivo tecnico:
+  serve evitare di continuare ad accumulare logica sperimentale high-res dentro `UsbUvcCamera.java`; il prossimo backend di scatto deve poter essere sviluppato e sostituito in modo isolato rispetto al backend stabile di preview e controlli.
+- Stato:
+  completato come scaffolding architetturale.
+
+### 35. Primo backend high-res concreto collegato a takePhoto
+
+- Richiesta/problema:
+  dopo lo scaffolding serviva un primo backend concreto, non solo interfacce, per spostare davvero il percorso high-res fuori da `UsbUvcCamera.java`.
+- Modifica fatta:
+  sono stati aggiunti:
+  - `AusbcCameraHandleProvider.java`
+  - `AusbcHighResPhotoCaptureBackend.java`
+
+  Inoltre:
+  - `HighResPhotoRequest` e' stato esteso con `outputPath` e `timeoutMs`
+  - `UsbUvcCamera.takePhoto()` ora delega il percorso high-res al backend `AusbcHighResPhotoCaptureBackend`
+  - il fallback preview resta invariato se il backend fallisce
+- Motivo tecnico:
+  in questo modo il backend high-res puo' essere sostituito in seguito senza riscrivere di nuovo tutta la logica di `takePhoto()`, mentre il plugin continua a mantenere lo stesso contratto verso l'app.
+- Stato:
+  completato in codice, da validare a runtime/build.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
