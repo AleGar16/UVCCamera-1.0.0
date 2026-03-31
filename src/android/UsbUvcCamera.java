@@ -5,7 +5,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.YuvImage;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
@@ -13,6 +16,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
@@ -35,6 +39,7 @@ import org.json.JSONException;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
@@ -252,24 +257,23 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        Log.i(TAG, "Saving preview frame as JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
+        Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
         cordova.getThreadPool().execute(() -> {
-            boolean saved = MediaUtils.INSTANCE.saveYuv2Jpeg(
-                    photoFile.getAbsolutePath(),
+            String encodedImage = encodePreviewFrameAsBase64(
                     frameCopy,
                     frameSize.getWidth(),
                     frameSize.getHeight()
             );
             mainHandler.post(() -> {
-                if (!saved) {
-                    Log.e(TAG, "Preview frame JPEG save failed");
-                    failPendingPhoto("Failed to save preview frame");
+                if (encodedImage == null) {
+                    Log.e(TAG, "Preview frame base64 encoding failed");
+                    failPendingPhoto("Failed to encode preview frame");
                     return;
                 }
-                Log.i(TAG, "Preview frame JPEG save complete: " + photoFile.getAbsolutePath());
+                Log.i(TAG, "Preview frame base64 encoding complete");
                 clearPhotoTimeout();
                 if (photoCallback != null) {
-                    photoCallback.success(photoFile.getAbsolutePath());
+                    photoCallback.success(encodedImage);
                     photoCallback = null;
                 }
             });
@@ -643,6 +647,27 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         return null;
+    }
+
+    private String encodePreviewFrameAsBase64(byte[] data, int width, int height) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
+        try {
+            YuvImage yuvImage = new YuvImage(data, ImageFormat.NV21, width, height, null);
+            boolean compressed = yuvImage.compressToJpeg(new Rect(0, 0, width, height), 100, outputStream);
+            if (!compressed) {
+                return null;
+            }
+            byte[] jpegBytes = outputStream.toByteArray();
+            return Base64.encodeToString(jpegBytes, Base64.NO_WRAP);
+        } catch (Exception exception) {
+            Log.e(TAG, "encodePreviewFrameAsBase64 failed", exception);
+            return null;
+        } finally {
+            try {
+                outputStream.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private void safeRegisterCameraClient() {

@@ -221,6 +221,17 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 15. takePhoto restituisce base64
+
+- Richiesta/problema:
+  serviva ricevere direttamente il contenuto immagine in base64 invece del path del file salvato.
+- Modifica fatta:
+  `takePhoto()` ora comprime il frame NV21 in JPEG e restituisce il base64 del JPEG come risultato della callback `success`.
+- Motivo tecnico:
+  semplificare l'integrazione lato app quando l'immagine deve essere mostrata subito o inoltrata senza ulteriore lettura dal filesystem.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
