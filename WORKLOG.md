@@ -818,6 +818,31 @@ Formato usato:
   - non compaia piu' l'errore JNI su `CallVoidMethodV`
   - `takePhoto()` riesca a usare i frame ricevuti dal callback basso.
 
+### 47. Priorita' del frame callback basso e salvataggio esplicito della size reale del frame
+
+- Richiesta/problema:
+  dopo il fix JNI, i log mostravano ancora una discrepanza:
+  - preview negoziata a `960x720`
+  - encoding JPEG eseguito come `1280x720`
+
+  Questo indicava che `takePhoto()` poteva ancora leggere un frame proveniente dal callback legacy AUSBC invece del frame basso realmente negoziato da `UVCCamera`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` sono stati aggiunti metadati espliciti del frame:
+  - `latestPreviewFrameWidth`
+  - `latestPreviewFrameHeight`
+
+  Inoltre:
+  - il callback legacy `addPreviewDataCallBack(...)` non sovrascrive piu' il frame se il callback basso `IFrameCallback` e' attivo
+  - il callback basso salva insieme ai byte anche width/height reali, presi dalla preview negoziata
+  - `attemptTakePhoto()` usa prima i metadati del frame salvati, invece di dedurre la size solo da `frameLength`
+  - la chiusura camera resetta anche width/height del frame memorizzato
+- Motivo tecnico:
+  un solo buffer condiviso tra due sorgenti diverse creava una race: il plugin poteva codificare come `1280x720` un frame che apparteneva alla pipeline legacy, mentre la preview bassa stava lavorando a un'altra size. Salvare sorgente implicita e size reale rende coerente il passaggio buffer -> JPEG.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando che i log mostrino:
+  - `Using stored preview frame size 960x720`
+  - `Encoding preview frame as base64 JPEG using size 960x720`
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
