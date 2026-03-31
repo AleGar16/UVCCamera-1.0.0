@@ -839,9 +839,40 @@ Formato usato:
 - Motivo tecnico:
   un solo buffer condiviso tra due sorgenti diverse creava una race: il plugin poteva codificare come `1280x720` un frame che apparteneva alla pipeline legacy, mentre la preview bassa stava lavorando a un'altra size. Salvare sorgente implicita e size reale rende coerente il passaggio buffer -> JPEG.
 - Stato:
-  fix applicato in codice; da validare a runtime verificando che i log mostrino:
+  validato a runtime sul totem.
+
+  Log confermati:
   - `Using stored preview frame size 960x720`
   - `Encoding preview frame as base64 JPEG using size 960x720`
+  - `Preview frame base64 encoding complete`
+
+  Quindi il flusso finale ora e':
+  - preview bassa negoziata a `960x720`
+  - frame ricevuto dal callback basso `UVCCamera`
+  - codifica JPEG coerente a `960x720`
+  - nessun crash JNI
+
+  Residuo aperto:
+  - resta il warning Cordova `THREAD WARNING: exec() call to UsbUvcCamera.takePhoto blocked the main thread`, da ottimizzare spostando l'intero avvio del flusso foto fuori dal main thread/plugin exec path.
+
+### 48. Avvio async di takePhoto e normalizzazione chroma del frame basso prima della JPEG
+
+- Richiesta/problema:
+  dopo la validazione a `960x720`, restavano due problemi:
+  - warning Cordova: `exec() call to UsbUvcCamera.takePhoto blocked the main thread`
+  - foto visivamente "corrotte" o disturbate, pur con size corretta
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - `takePhoto()` ora avvia `attemptHighResTakePhoto(...)` tramite `cordova.getThreadPool()`, invece di eseguire subito il flusso nel percorso `execute()`
+  - il frame memorizzato salva anche la provenienza (`legacy` AUSBC vs callback basso `UVCCamera`)
+  - se il frame arriva dal callback basso, prima della JPEG viene convertito da `NV12/YUV420SP` a `NV21` con swap dei byte UV a coppie
+- Motivo tecnico:
+  il warning Cordova nasceva dal fatto che il flusso foto partiva direttamente nel thread del plugin. Il disturbo visivo, invece, e' compatibile con un mismatch chroma: il buffer YUV semiplanare del callback basso probabilmente arriva in ordine `UV` (NV12/YUV420SP), mentre `YuvImage` si aspetta `VU` (`NV21`).
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - assenza del warning `THREAD WARNING: exec() call to UsbUvcCamera.takePhoto blocked the main thread`
+  - presenza del log `Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding`
+  - resa visiva corretta della foto salvata.
 
 ## Nota operativa
 

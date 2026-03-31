@@ -106,6 +106,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private byte[] latestPreviewFrame;
     private int latestPreviewFrameWidth = -1;
     private int latestPreviewFrameHeight = -1;
+    private boolean latestPreviewFrameFromUnderlying = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
 
     @Override
@@ -358,7 +359,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
         schedulePhotoTimeout();
-        attemptHighResTakePhoto(photoFile, 1);
+        cordova.getThreadPool().execute(() -> attemptHighResTakePhoto(photoFile, 1));
         return true;
     }
 
@@ -473,10 +474,12 @@ public class UsbUvcCamera extends CordovaPlugin {
         byte[] frameCopy;
         int frameWidth;
         int frameHeight;
+        boolean frameFromUnderlying;
         synchronized (previewFrameLock) {
             frameCopy = latestPreviewFrame != null ? latestPreviewFrame.clone() : null;
             frameWidth = latestPreviewFrameWidth;
             frameHeight = latestPreviewFrameHeight;
+            frameFromUnderlying = latestPreviewFrameFromUnderlying;
         }
 
         if (frameCopy == null) {
@@ -504,9 +507,16 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
+        final byte[] encodedFrameData;
+        if (frameFromUnderlying) {
+            encodedFrameData = convertNv12ToNv21(frameCopy);
+            Log.i(TAG, "Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding");
+        } else {
+            encodedFrameData = frameCopy;
+        }
         cordova.getThreadPool().execute(() -> {
             String encodedImage = encodePreviewFrameAsBase64(
-                    frameCopy,
+                    encodedFrameData,
                     frameSize.getWidth(),
                     frameSize.getHeight()
             );
@@ -1146,6 +1156,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrame = data.clone();
                         latestPreviewFrameWidth = previewWidth;
                         latestPreviewFrameHeight = previewHeight;
+                        latestPreviewFrameFromUnderlying = false;
                     }
                 }
             });
@@ -1244,6 +1255,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrame = null;
             latestPreviewFrameWidth = -1;
             latestPreviewFrameHeight = -1;
+            latestPreviewFrameFromUnderlying = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1634,6 +1646,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrame = bytes;
                         latestPreviewFrameWidth = frameWidth;
                         latestPreviewFrameHeight = frameHeight;
+                        latestPreviewFrameFromUnderlying = true;
                     }
                 }
             };
@@ -1661,8 +1674,26 @@ public class UsbUvcCamera extends CordovaPlugin {
             synchronized (previewFrameLock) {
                 latestPreviewFrameWidth = -1;
                 latestPreviewFrameHeight = -1;
+                latestPreviewFrameFromUnderlying = false;
             }
         }
+    }
+
+    private byte[] convertNv12ToNv21(byte[] data) {
+        if (data == null || data.length < 4) {
+            return data;
+        }
+        byte[] converted = data.clone();
+        int uvStart = (data.length * 2) / 3;
+        if (uvStart < 0 || uvStart >= data.length - 1) {
+            return converted;
+        }
+        for (int index = uvStart; index + 1 < converted.length; index += 2) {
+            byte u = converted[index];
+            converted[index] = converted[index + 1];
+            converted[index + 1] = u;
+        }
+        return converted;
     }
 
     private List<int[]> buildPreviewNegotiationCandidates() {
