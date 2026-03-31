@@ -248,7 +248,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         Log.i(TAG, "Saving preview frame as JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
         cordova.getThreadPool().execute(() -> {
-            boolean saved = MediaUtils.saveYuv2Jpeg(
+            boolean saved = MediaUtils.INSTANCE.saveYuv2Jpeg(
                     photoFile.getAbsolutePath(),
                     frameCopy,
                     frameSize.getWidth(),

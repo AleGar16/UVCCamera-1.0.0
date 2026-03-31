@@ -186,6 +186,8 @@ Formato usato:
   evitare il punto di stallo interno alla libreria AUSBC/UVCCamera e usare un flusso di capture piu' controllabile dal plugin.
 - Stato:
   completato in codice, da validare a runtime.
+  Nota di compatibilita':
+  da Java l'helper Kotlin `MediaUtils` va invocato come `MediaUtils.INSTANCE.saveYuv2Jpeg(...)`.
 
 ## Nota operativa
 
