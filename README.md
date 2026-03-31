@@ -49,6 +49,7 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.updatePreviewBounds(options, success, error)`
 - `navigator.usbUvcCamera.listUsbDevices(success, error)`
 - `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
+- `navigator.usbUvcCamera.inspectUvcDescriptors(success, error)`
 - `navigator.usbUvcCamera.setAutoFocus(enabled, success, error)`
 - `navigator.usbUvcCamera.setFocus(value, success, error)`
 - `navigator.usbUvcCamera.setZoom(value, success, error)`
@@ -94,6 +95,25 @@ navigator.usbUvcCamera.setAutoWhiteBalance(false, console.log, console.error);
 navigator.usbUvcCamera.setWhiteBalance(55, console.log, console.error);
 ```
 
+## Diagnostica descriptor UVC
+
+Per capire se la webcam espone davvero descriptor still-image UVC separati dal preview stream:
+
+```javascript
+navigator.usbUvcCamera.inspectUvcDescriptors(console.log, console.error);
+```
+
+Il risultato include:
+
+- `stillImageDescriptorCount`
+- `hasStillImageDescriptor`
+- `canAttemptNativeStillPath`
+- `frameFormats`
+- `frameSizes`
+- `descriptorSubtypes`
+
+Questo serve a capire se vale la pena investire in un backend still nativo vero oppure se il device espone solo il classico percorso preview/video.
+
 ## Preview nativa
 
 La preview e' una `TextureView` Android nativa sovrapposta alla WebView, quindi non va inserita dentro un `iframe`.
@@ -125,6 +145,8 @@ Il plugin e' stato impostato per una nuova fase architetturale:
 - il backend attuale resta il riferimento per preview e controlli
 - il photo capture high-res verra' separato in un backend dedicato
 - e' gia' presente il placeholder [NativeStillCaptureBackend.java](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/src/android/NativeStillCaptureBackend.java) per la prossima integrazione reale
+- il plugin usa gia' una catena di backend high-res, pronta per dare priorita' al backend alternativo e fare fallback su AUSBC solo se necessario
+- l'analisi del vendor upstream e' documentata in [VENDOR_FINDINGS.md](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/VENDOR_FINDINGS.md)
 
 Dettagli operativi:
 

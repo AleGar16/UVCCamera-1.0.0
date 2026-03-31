@@ -37,6 +37,10 @@ module.exports = {
         exec(success, error, 'UsbUvcCamera', 'getCameraCapabilities', []);
     },
 
+    inspectUvcDescriptors: function(success, error) {
+        exec(success, error, 'UsbUvcCamera', 'inspectUvcDescriptors', []);
+    },
+
     setAutoFocus: function(enabled, success, error) {
         exec(success, error, 'UsbUvcCamera', 'setAutoFocus', [!!enabled]);
     },

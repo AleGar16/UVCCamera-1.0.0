@@ -69,6 +69,38 @@ Il placeholder operativo di questa fase e':
 
 che oggi e' volutamente non implementato ma e' gia' agganciato al progetto come destinazione della prossima integrazione reale.
 
+Per supportare la migrazione graduale e' stato aggiunto anche:
+
+- `CompositeHighResPhotoCaptureBackend`
+
+che permette di provare prima il backend alternativo e, se non disponibile o non implementato, fare fallback sul backend AUSBC attuale.
+
+## Verifica upstream gia' eseguita
+
+L'analisi del codice vendorizzato in `vendor/UVCCamera-upstream` ha mostrato che il loro still capture standard e' preview-based.
+
+Dettagli:
+
+- [VENDOR_FINDINGS.md](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/VENDOR_FINDINGS.md)
+
+Quindi la prossima implementazione reale di `NativeStillCaptureBackend` non deve limitarsi a copiare `captureStillImage()` dai sample, perche' rischierebbe di mantenere lo stesso limite di risoluzione.
+
+Per supportare questa fase e' stata aggiunta anche un'azione diagnostica nativa:
+
+- `inspectUvcDescriptors()`
+
+che legge i raw USB descriptors del device reale e restituisce:
+
+- numero di interfacce video control / video streaming
+- presenza di `VS_STILL_IMAGE_FRAME`
+- formati e frame descriptors UVC trovati
+- frame sizes dichiarate nei descriptor
+
+Questo permette di distinguere in modo piu' oggettivo:
+
+1. device con veri still descriptors UVC
+2. device che espongono solo streaming/video descriptors
+
 ### Fase C
 
 Agganciare `UsbUvcCamera.takePhoto()` al nuovo `HighResPhotoCaptureBackend`, mantenendo:

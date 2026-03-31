@@ -11,6 +11,7 @@ import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.graphics.YuvImage;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
@@ -48,7 +49,9 @@ import java.io.FileInputStream;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -183,6 +186,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return listUsbDevices(callbackContext);
             case "getCameraCapabilities":
                 return getCameraCapabilities(callbackContext);
+            case "inspectUvcDescriptors":
+                return inspectUvcDescriptors(callbackContext);
             case "setAutoFocus":
                 return setAutoFocus(args, callbackContext);
             case "setFocus":
@@ -642,6 +647,71 @@ public class UsbUvcCamera extends CordovaPlugin {
         return true;
     }
 
+    private boolean inspectUvcDescriptors(CallbackContext callbackContext) {
+        UsbDeviceConnection connection = null;
+        try {
+            UsbManager usbManager = (UsbManager) cordova.getActivity().getSystemService(Context.USB_SERVICE);
+            if (usbManager == null) {
+                callbackContext.error("UsbManager not available");
+                return true;
+            }
+
+            UsbDevice device = currentDevice != null ? currentDevice : selectPreferredDevice(null);
+            if (device == null) {
+                callbackContext.error("No compatible USB UVC camera found");
+                return true;
+            }
+
+            connection = usbManager.openDevice(device);
+            if (connection == null) {
+                callbackContext.error("Unable to open USB device for descriptor inspection");
+                return true;
+            }
+
+            byte[] rawDescriptors = connection.getRawDescriptors();
+            if (rawDescriptors == null || rawDescriptors.length == 0) {
+                callbackContext.error("USB raw descriptors not available");
+                return true;
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("deviceName", device.getDeviceName());
+            result.put("vendorId", device.getVendorId());
+            result.put("productId", device.getProductId());
+            result.put("rawDescriptorLength", rawDescriptors.length);
+            result.put("interfaces", buildInterfaceSummary(device));
+
+            ParsedUvcDescriptors parsed = parseUvcDescriptors(rawDescriptors);
+            result.put("videoControlInterfaceCount", parsed.videoControlInterfaceCount);
+            result.put("videoStreamingInterfaceCount", parsed.videoStreamingInterfaceCount);
+            result.put("stillImageDescriptorCount", parsed.stillImageDescriptorCount);
+            result.put("formatDescriptorCount", parsed.formatDescriptorCount);
+            result.put("frameDescriptorCount", parsed.frameDescriptorCount);
+            result.put("frameFormats", new JSONArray(parsed.frameFormats));
+            result.put("frameSizes", new JSONArray(parsed.frameSizes));
+            result.put("descriptorSubtypes", new JSONArray(parsed.descriptorSubtypes));
+            result.put("hasStillImageDescriptor", parsed.stillImageDescriptorCount > 0);
+            result.put("canAttemptNativeStillPath", parsed.stillImageDescriptorCount > 0);
+            result.put("notes", buildDescriptorNotes(parsed));
+
+            Log.i(TAG, "inspectUvcDescriptors result: stillImageDescriptorCount=" + parsed.stillImageDescriptorCount
+                    + ", frameDescriptorCount=" + parsed.frameDescriptorCount
+                    + ", frameSizes=" + parsed.frameSizes);
+            callbackContext.success(result);
+        } catch (Exception exception) {
+            Log.e(TAG, "inspectUvcDescriptors failed", exception);
+            callbackContext.error("inspectUvcDescriptors failed: " + exception.getMessage());
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return true;
+    }
+
     private boolean applyStableCameraProfile(JSONArray args, CallbackContext callbackContext) {
         try {
             UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
@@ -756,12 +826,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (highResPhotoCaptureBackend != null) {
             return;
         }
-        highResPhotoCaptureBackend = new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
+        List<HighResPhotoCaptureBackend> backends = new ArrayList<>();
+        backends.add(new NativeStillCaptureBackend());
+        backends.add(new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
             @Override
             public MultiCameraClient.Camera getCurrentCamera() {
                 return currentCamera;
             }
-        });
+        }));
+        highResPhotoCaptureBackend = new CompositeHighResPhotoCaptureBackend(backends);
         try {
             highResPhotoCaptureBackend.initialize();
         } catch (Exception exception) {
@@ -1091,6 +1164,133 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
         return false;
+    }
+
+    private JSONArray buildInterfaceSummary(UsbDevice device) throws JSONException {
+        JSONArray interfaces = new JSONArray();
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface usbInterface = device.getInterface(i);
+            JSONObject interfaceJson = new JSONObject();
+            interfaceJson.put("id", usbInterface.getId());
+            interfaceJson.put("alternateSetting", usbInterface.getAlternateSetting());
+            interfaceJson.put("interfaceClass", usbInterface.getInterfaceClass());
+            interfaceJson.put("interfaceSubclass", usbInterface.getInterfaceSubclass());
+            interfaceJson.put("interfaceProtocol", usbInterface.getInterfaceProtocol());
+            interfaceJson.put("endpointCount", usbInterface.getEndpointCount());
+            interfaces.put(interfaceJson);
+        }
+        return interfaces;
+    }
+
+    private ParsedUvcDescriptors parseUvcDescriptors(byte[] rawDescriptors) {
+        ParsedUvcDescriptors parsed = new ParsedUvcDescriptors();
+        int currentInterfaceClass = -1;
+        int currentInterfaceSubclass = -1;
+        int currentInterfaceNumber = -1;
+        int currentAlternateSetting = -1;
+
+        for (int index = 0; index + 1 < rawDescriptors.length; ) {
+            int length = rawDescriptors[index] & 0xff;
+            if (length <= 0 || index + length > rawDescriptors.length) {
+                break;
+            }
+
+            int descriptorType = rawDescriptors[index + 1] & 0xff;
+            if (descriptorType == 0x04 && length >= 9) {
+                currentInterfaceNumber = rawDescriptors[index + 2] & 0xff;
+                currentAlternateSetting = rawDescriptors[index + 3] & 0xff;
+                currentInterfaceClass = rawDescriptors[index + 5] & 0xff;
+                currentInterfaceSubclass = rawDescriptors[index + 6] & 0xff;
+                if (currentInterfaceClass == 14) {
+                    if (currentInterfaceSubclass == 1) {
+                        parsed.videoControlInterfaceCount++;
+                    } else if (currentInterfaceSubclass == 2) {
+                        parsed.videoStreamingInterfaceCount++;
+                    }
+                }
+            } else if (descriptorType == 0x24 && length >= 3 && currentInterfaceClass == 14) {
+                int descriptorSubtype = rawDescriptors[index + 2] & 0xff;
+                parsed.descriptorSubtypes.add(descriptorSubtypeName(currentInterfaceSubclass, descriptorSubtype));
+                if (currentInterfaceSubclass == 2) {
+                    if (descriptorSubtype == 0x03) {
+                        parsed.stillImageDescriptorCount++;
+                    } else if (descriptorSubtype == 0x04 || descriptorSubtype == 0x06 || descriptorSubtype == 0x10) {
+                        parsed.formatDescriptorCount++;
+                        parsed.frameFormats.add(descriptorSubtypeName(currentInterfaceSubclass, descriptorSubtype));
+                    } else if (descriptorSubtype == 0x05 || descriptorSubtype == 0x07 || descriptorSubtype == 0x11) {
+                        parsed.frameDescriptorCount++;
+                        if (length >= 9) {
+                            int width = ((rawDescriptors[index + 6] & 0xff) << 8) | (rawDescriptors[index + 5] & 0xff);
+                            int height = ((rawDescriptors[index + 8] & 0xff) << 8) | (rawDescriptors[index + 7] & 0xff);
+                            parsed.frameSizes.add(width + "x" + height + " [" + descriptorSubtypeName(currentInterfaceSubclass, descriptorSubtype)
+                                    + ", if=" + currentInterfaceNumber + ", alt=" + currentAlternateSetting + "]");
+                        }
+                    }
+                }
+            }
+
+            index += length;
+        }
+
+        return parsed;
+    }
+
+    private JSONArray buildDescriptorNotes(ParsedUvcDescriptors parsed) {
+        JSONArray notes = new JSONArray();
+        if (parsed.stillImageDescriptorCount == 0) {
+            notes.put("No UVC still-image descriptors were found in the raw USB descriptors.");
+        } else {
+            notes.put("UVC still-image descriptors were found. A true still-image backend may be possible.");
+        }
+        if (parsed.frameSizes.isEmpty()) {
+            notes.put("No class-specific frame descriptors were parsed from the video streaming interfaces.");
+        } else {
+            notes.put("Parsed frame descriptors from USB video streaming interfaces: " + Arrays.toString(parsed.frameSizes.toArray()));
+        }
+        return notes;
+    }
+
+    private String descriptorSubtypeName(int interfaceSubclass, int descriptorSubtype) {
+        if (interfaceSubclass == 1) {
+            switch (descriptorSubtype) {
+                case 0x01: return "VC_HEADER";
+                case 0x02: return "VC_INPUT_TERMINAL";
+                case 0x03: return "VC_OUTPUT_TERMINAL";
+                case 0x04: return "VC_SELECTOR_UNIT";
+                case 0x05: return "VC_PROCESSING_UNIT";
+                case 0x06: return "VC_EXTENSION_UNIT";
+                default: return "VC_UNKNOWN_" + descriptorSubtype;
+            }
+        }
+
+        if (interfaceSubclass == 2) {
+            switch (descriptorSubtype) {
+                case 0x01: return "VS_INPUT_HEADER";
+                case 0x02: return "VS_OUTPUT_HEADER";
+                case 0x03: return "VS_STILL_IMAGE_FRAME";
+                case 0x04: return "VS_FORMAT_UNCOMPRESSED";
+                case 0x05: return "VS_FRAME_UNCOMPRESSED";
+                case 0x06: return "VS_FORMAT_MJPEG";
+                case 0x07: return "VS_FRAME_MJPEG";
+                case 0x0d: return "VS_COLORFORMAT";
+                case 0x10: return "VS_FORMAT_FRAME_BASED";
+                case 0x11: return "VS_FRAME_FRAME_BASED";
+                default: return "VS_UNKNOWN_" + descriptorSubtype;
+            }
+        }
+
+        return "UNKNOWN_" + descriptorSubtype;
+    }
+
+    private static final class ParsedUvcDescriptors {
+        int videoControlInterfaceCount;
+        int videoStreamingInterfaceCount;
+        int stillImageDescriptorCount;
+        int formatDescriptorCount;
+        int frameDescriptorCount;
+        final LinkedHashSet<String> frameFormats = new LinkedHashSet<>();
+        final LinkedHashSet<String> frameSizes = new LinkedHashSet<>();
+        final LinkedHashSet<String> descriptorSubtypes = new LinkedHashSet<>();
     }
 
     private PreviewSize resolvePreviewSizeForFrame(int frameLength) {
