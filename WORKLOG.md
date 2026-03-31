@@ -738,6 +738,50 @@ Formato usato:
   - overload `setPreviewSize(...)` usato
   - dimensione finale del JPEG di `takePhoto()`
 
+### 43. Priorita' al preview frame quando la preview negoziata supera 640x480
+
+- Richiesta/problema:
+  dopo la riconfigurazione bassa di `UVCCamera`, i log hanno mostrato una preview negoziata a `960x720`, ma il percorso `captureImage()` andava in timeout e peggiorava il flusso.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`, `attemptHighResTakePhoto()` ora controlla prima la preview realmente negoziata da `UVCCamera`.
+
+  Se la preview attiva e' gia' superiore a `640x480`, il plugin:
+  - salta il backend `captureImage()`
+  - usa direttamente `attemptTakePhoto()` dal frame preview
+
+  La size corrente viene letta da `UVCCamera.getPreviewSize()` con reflection/fallback parsing.
+- Motivo tecnico:
+  una preview realmente negoziata a `960x720` e' gia' migliore del vecchio limite `640x480`; se `captureImage()` va in timeout, e' piu' sensato usare subito quel frame preview piuttosto che aspettare un backend che non chiude.
+- Stato:
+  completato in codice, da validare a runtime verificando che `takePhoto()` usi direttamente il frame `960x720` senza timeout.
+
+### 44. Ladder di negoziazione preview high-res dal livello UVCCamera
+
+- Richiesta/problema:
+  serviva capire se fosse ancora possibile salire oltre `960x720`, invece di fermarsi alla prima size negoziata con successo.
+- Modifica fatta:
+  la riconfigurazione bassa di `UVCCamera` ora non prova una sola size, ma una ladder ordinata di candidate:
+  - requested size
+  - `1920x1080`
+  - `1600x896`
+  - `1280x720`
+  - `1024x576`
+  - `960x720`
+  - `864x480`
+  - `800x600`
+  - `640x480`
+
+  Per ogni tentativo il plugin:
+  - ferma la preview
+  - invoca `setPreviewSize(...)`
+  - riaggancia la texture
+  - riavvia la preview
+  - legge la size realmente negoziata
+- Motivo tecnico:
+  la webcam dichiara size alte fino a `1920x1080`, ma il backend puo' degradare o rifiutare alcune risoluzioni. La ladder permette di trovare automaticamente la migliore size realmente accettata dal totem.
+- Stato:
+  completato in codice, da validare a runtime leggendo i log `Underlying preview negotiation attempt requested=... negotiated=...`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

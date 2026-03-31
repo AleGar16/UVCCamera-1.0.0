@@ -384,6 +384,17 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
+        int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+        if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
+            int negotiatedPixels = negotiatedPreviewSize[0] * negotiatedPreviewSize[1];
+            if (negotiatedPixels > (640 * 480)) {
+                Log.i(TAG, "Skipping captureImage backend because negotiated preview stream is already high-res: "
+                        + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
+                attemptTakePhoto(photoFile, 1);
+                return;
+            }
+        }
+
         if (photoFile.exists()) {
             //noinspection ResultOfMethodCallIgnored
             photoFile.delete();
@@ -522,6 +533,52 @@ public class UsbUvcCamera extends CordovaPlugin {
             mainHandler.removeCallbacks(pendingPhotoTimeout);
             pendingPhotoTimeout = null;
         }
+    }
+
+    private int[] getNegotiatedPreviewSize() {
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null) {
+                return new int[] { -1, -1 };
+            }
+            Object previewSize = uvcCamera.getPreviewSize();
+            if (previewSize == null) {
+                return new int[] { -1, -1 };
+            }
+
+            Integer width = extractDimension(previewSize, "width", "mWidth");
+            Integer height = extractDimension(previewSize, "height", "mHeight");
+            if (width != null && height != null) {
+                return new int[] { width, height };
+            }
+
+            String serialized = previewSize.toString();
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)x(\\d+)").matcher(serialized);
+            if (matcher.find()) {
+                return new int[] {
+                        Integer.parseInt(matcher.group(1)),
+                        Integer.parseInt(matcher.group(2))
+                };
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to read negotiated preview size", exception);
+        }
+        return new int[] { -1, -1 };
+    }
+
+    private Integer extractDimension(Object previewSize, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            try {
+                Field field = previewSize.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                Object value = field.get(previewSize);
+                if (value instanceof Integer) {
+                    return (Integer) value;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     private boolean listUsbDevices(CallbackContext callbackContext) {
@@ -1502,23 +1559,76 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
         try {
             int frameFormat = resolvePreferredFrameFormat(uvcCamera);
-            Log.i(TAG, "Configuring underlying UVCCamera preview stream width=" + previewWidth
-                    + ", height=" + previewHeight + ", frameFormat=" + frameFormat
-                    + ", preferMjpeg=" + preferMjpeg);
-            uvcCamera.stopPreview();
-            invokeSetPreviewSizePreferSpecificOverload(uvcCamera, previewWidth, previewHeight, frameFormat);
-            if (previewView != null && previewView.isAvailable()) {
-                uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
-            }
-            uvcCamera.startPreview();
-            try {
-                Object previewSize = uvcCamera.getPreviewSize();
-                Log.i(TAG, "Underlying UVCCamera preview stream configured, previewSize=" + previewSize);
-            } catch (Exception ignored) {
+            List<int[]> candidates = buildPreviewNegotiationCandidates();
+            Log.i(TAG, "Configuring underlying UVCCamera preview stream frameFormat=" + frameFormat
+                    + ", preferMjpeg=" + preferMjpeg + ", candidates=" + describeCandidates(candidates));
+            for (int[] candidate : candidates) {
+                int candidateWidth = candidate[0];
+                int candidateHeight = candidate[1];
+                try {
+                    uvcCamera.stopPreview();
+                } catch (Exception ignored) {
+                }
+                invokeSetPreviewSizePreferSpecificOverload(uvcCamera, candidateWidth, candidateHeight, frameFormat);
+                if (previewView != null && previewView.isAvailable()) {
+                    uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
+                }
+                uvcCamera.startPreview();
+                int[] negotiated = getNegotiatedPreviewSize();
+                Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
+                        + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
+                if (negotiated[0] > 0 && negotiated[1] > 0) {
+                    previewWidth = negotiated[0];
+                    previewHeight = negotiated[1];
+                    Log.i(TAG, "Underlying UVCCamera preview stream configured, previewSize=" + negotiated[0] + "x" + negotiated[1]);
+                    return;
+                }
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to reconfigure underlying UVCCamera preview stream", exception);
         }
+    }
+
+    private List<int[]> buildPreviewNegotiationCandidates() {
+        List<int[]> candidates = new ArrayList<>();
+        addCandidate(candidates, requestedPreviewWidth, requestedPreviewHeight);
+        if (preferHighestResolution) {
+            addCandidate(candidates, 1920, 1080);
+            addCandidate(candidates, 1600, 896);
+            addCandidate(candidates, 1280, 720);
+            addCandidate(candidates, 1024, 576);
+            addCandidate(candidates, 960, 720);
+            addCandidate(candidates, 864, 480);
+            addCandidate(candidates, 800, 600);
+        } else {
+            addCandidate(candidates, 1280, 720);
+            addCandidate(candidates, 960, 720);
+        }
+        addCandidate(candidates, 640, 480);
+        return candidates;
+    }
+
+    private void addCandidate(List<int[]> candidates, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        for (int[] candidate : candidates) {
+            if (candidate[0] == width && candidate[1] == height) {
+                return;
+            }
+        }
+        candidates.add(new int[] { width, height });
+    }
+
+    private String describeCandidates(List<int[]> candidates) {
+        StringBuilder builder = new StringBuilder();
+        for (int[] candidate : candidates) {
+            if (builder.length() > 0) {
+                builder.append(", ");
+            }
+            builder.append(candidate[0]).append("x").append(candidate[1]);
+        }
+        return builder.toString();
     }
 
     private int resolvePreferredFrameFormat(UVCCamera uvcCamera) {
