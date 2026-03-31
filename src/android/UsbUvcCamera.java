@@ -1290,10 +1290,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             boolean enabled = args.optBoolean(0, true);
             Log.i(TAG, "setAutoExposure requestedEnabled=" + enabled);
-            setAutoExposureInternal(uvcCamera, enabled);
+            int modeApplied = setAutoExposureInternal(uvcCamera, enabled);
             JSONObject result = new JSONObject();
             result.put("requested", enabled);
             result.put("applied", getAutoExposure(uvcCamera));
+            result.put("mode", getExposureModeRaw(uvcCamera));
+            result.put("modeApplied", modeApplied);
             callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "setAutoExposure failed", exception);
@@ -1315,6 +1317,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             result.put("requested", value);
             result.put("applied", getExposurePercent(uvcCamera));
             result.put("autoExposure", getAutoExposure(uvcCamera));
+            result.put("mode", getExposureModeRaw(uvcCamera));
             callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "setExposure failed", exception);
@@ -1396,9 +1399,26 @@ public class UsbUvcCamera extends CordovaPlugin {
         return uvcCamera;
     }
 
-    private void setAutoExposureInternal(UVCCamera uvcCamera, boolean enabled) throws Exception {
+    private int setAutoExposureInternal(UVCCamera uvcCamera, boolean enabled) throws Exception {
         invokeDeclaredVoidMethod(uvcCamera, "nativeUpdateExposureModeLimit");
-        invokeDeclaredVoidMethod(uvcCamera, "nativeSetExposureMode", enabled ? UVC_EXPOSURE_MODE_AUTO : UVC_EXPOSURE_MODE_MANUAL);
+        int[] candidates = enabled
+                ? new int[] { UVC_EXPOSURE_MODE_AUTO, 8, 4 }
+                : new int[] { UVC_EXPOSURE_MODE_MANUAL, 1 };
+        Exception lastException = null;
+        for (int candidate : candidates) {
+            try {
+                Log.i(TAG, "Trying exposure mode candidate=" + candidate + " for enabled=" + enabled);
+                invokeDeclaredVoidMethod(uvcCamera, "nativeSetExposureMode", candidate);
+                return candidate;
+            } catch (Exception exception) {
+                lastException = exception;
+                Log.w(TAG, "nativeSetExposureMode candidate failed: " + candidate, exception);
+            }
+        }
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new IllegalStateException("No exposure mode candidate available");
     }
 
     private void setExposureInternal(UVCCamera uvcCamera, int percent) throws Exception {
@@ -1411,11 +1431,20 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private boolean getAutoExposure(UVCCamera uvcCamera) {
         try {
-            int mode = invokeDeclaredIntMethod(uvcCamera, "nativeGetExposureMode");
-            return mode != UVC_EXPOSURE_MODE_MANUAL;
+            int mode = getExposureModeRaw(uvcCamera);
+            return mode != UVC_EXPOSURE_MODE_MANUAL && mode != 1;
         } catch (Exception exception) {
             Log.w(TAG, "getAutoExposure failed", exception);
             return true;
+        }
+    }
+
+    private int getExposureModeRaw(UVCCamera uvcCamera) {
+        try {
+            return invokeDeclaredIntMethod(uvcCamera, "nativeGetExposureMode");
+        } catch (Exception exception) {
+            Log.w(TAG, "getExposureModeRaw failed", exception);
+            return -1;
         }
     }
 

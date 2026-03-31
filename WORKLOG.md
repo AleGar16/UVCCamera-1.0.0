@@ -533,6 +533,25 @@ Formato usato:
 - Stato:
   completato in codice, da validare a runtime.
 
+### 33. Diagnostica e tolleranza maggiore per auto exposure
+
+- Richiesta/problema:
+  `setAutoExposure(true)` sembrava non cambiare mai lo stato, che restava a `false`, nonostante il controllo manuale dell'esposizione funzionasse.
+- Modifica fatta:
+  `setAutoExposure()` ora:
+  - prova piu' candidati di mode UVC (`2`, `8`, `4` per auto; `1` per manuale)
+  - ritorna nel risultato:
+    - `requested`
+    - `applied`
+    - `mode`
+    - `modeApplied`
+
+  Anche `setExposure()` ora ritorna il `mode` raw letto dal backend.
+- Motivo tecnico:
+  diversi device/UVC stack usano codifiche leggermente diverse per `exposure mode`; provare piu' candidati e leggere il mode raw aiuta a capire se il problema e' nel valore del mode o nel getter che non riflette bene lo stato.
+- Stato:
+  completato in codice, da validare a runtime.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
