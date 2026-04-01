@@ -519,13 +519,15 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight()
                 + ", frameLength=" + frameCopy.length + ", frameFormat=" + frameFormat);
+        final int finalFrameWidth = frameSize.getWidth();
+        final int finalFrameHeight = frameSize.getHeight();
         final byte[] encodedFrameData;
         if (frameFromUnderlying) {
             if ("yuyv".equals(frameFormat)) {
-                encodedFrameData = convertYuyvToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
+                encodedFrameData = convertYuyvToNv21(frameCopy, finalFrameWidth, finalFrameHeight);
                 Log.i(TAG, "Converting underlying preview frame from YUYV to NV21 before JPEG encoding");
             } else {
-                encodedFrameData = convertNv12ToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
+                encodedFrameData = convertNv12ToNv21(frameCopy, finalFrameWidth, finalFrameHeight);
                 Log.i(TAG, "Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding");
             }
         } else {
@@ -534,8 +536,8 @@ public class UsbUvcCamera extends CordovaPlugin {
         cordova.getThreadPool().execute(() -> {
             String encodedImage = encodePreviewFrameAsBase64(
                     encodedFrameData,
-                    frameSize.getWidth(),
-                    frameSize.getHeight()
+                    finalFrameWidth,
+                    finalFrameHeight
             );
             mainHandler.post(() -> {
                 if (encodedImage == null) {
