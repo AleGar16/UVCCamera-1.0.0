@@ -1225,3 +1225,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
+
+## 2026-04-01 - Reinstallazione del frame callback durante i retry foto
+
+### Richiesta o problema
+
+- i log mostravano ancora assenza totale di frame raw durante `takePhoto()`, e nel blocco runtime non appariva nessuna nuova installazione del callback basso mentre il plugin faceva i retry
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- la rotazione dei pixel format sul callback basso UVC era utile solo in apertura camera, ma non cambiava nulla dentro il ciclo retry di `attemptTakePhoto()`
+- ora, a ogni retry senza `latestPreviewFrame`, il plugin prova a reinstallare subito `setFrameCallback(...)` con il prossimo pixel format candidato
+- questo rende finalmente effettiva la rotazione dei pixel format durante il fallback foto, senza dover riaprire tutta la camera
+
+### Stato finale
+
+- il prossimo build dovrebbe mostrare durante `takePhoto()` nuove righe tipo `Installed underlying UVCCamera frame callback ...` e `Reinstalled underlying frame callback ...`
+- se dopo questo non arriva ancora nessun `Received first preview frame ...`, il canale raw basso potra' considerarsi praticamente non disponibile su questa combinazione device/libreria
