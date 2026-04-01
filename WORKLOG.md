@@ -1204,3 +1204,24 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build dira' se il JPEG nero era causato proprio dalla cattura di una `TextureView` non renderizzata
 - se anche cosi' il bitmap resta nero, il problema sara' quasi certamente nel contenuto della preview fornito dal backend UVC, non piu' nel timing/layout della cattura Android
+
+## 2026-04-01 - Rotazione pixel format per il frame callback UVC
+
+### Richiesta o problema
+
+- i log continuavano a non mostrare nessun `Received first preview frame ...`, quindi il callback basso `UVCCamera.setFrameCallback(...)` non stava consegnando frame raw con il pixel format scelto finora
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `installUnderlyingFrameCallback()` non forza piu' sempre un solo pixel format
+- ora costruisce una lista di candidati supportati via reflection (`NV21`, `YUV420SP`, `YUV420P`, `NV12`, `YUYV`) e ruota il formato usato a ogni nuova installazione del callback
+- il log di installazione ora riporta sia il `pixelFormat` scelto sia tutti i candidati disponibili, cosi' il prossimo test mostra subito se almeno uno sblocca il canale raw
+
+### Stato finale
+
+- il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
