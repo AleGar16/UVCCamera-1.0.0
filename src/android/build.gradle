@@ -13,8 +13,8 @@ repositories {
 }
 
 dependencies {
-    // Keep the top-level artifact because this plugin directly imports
-    // com.serenegiant.usb.* classes that are not exposed by libausbc alone.
+    // Fallback to the published top-level artifact,excluding demo-only deps
+    // that fail to resolve on the build server.
     implementation('com.github.jiangdongguo:AndroidUSBCamera:3.2.7') {
         exclude group: 'com.gyf.immersionbar', module: 'immersionbar'
         exclude group: 'com.zlc.glide', module: 'webpdecoder'
