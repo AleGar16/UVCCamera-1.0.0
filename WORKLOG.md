@@ -1182,3 +1182,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build dira' chiaramente se il totem sta consegnando frame raw preview
 - se compare `Received first preview frame ...` e poi `Using stored preview frame size ...`, avremo finalmente uno scatto fallback indipendente dalla `TextureView`
+
+## 2026-04-01 - Fallback TextureView con frame di render reale
+
+### Richiesta o problema
+
+- anche come ultima spiaggia, il fallback `TextureView` produceva ancora un JPEG nero, segno che `getBitmap()` stava leggendo una view nascosta/offscreen senza un frame utile renderizzato
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- l'ultimo fallback non usa piu' `getBitmap()` immediato nello stesso punto del flusso
+- ora il plugin porta temporaneamente la preview in uno stato visibile con bounds validi, aspetta due frame di animazione via `postOnAnimation`, cattura il bitmap e poi ripristina subito il layout precedente
+- questo serve a far leggere al `TextureView` un contenuto davvero renderizzato, invece di un buffer nero mantenuto mentre la preview e' nascosta/offscreen
+
+### Stato finale
+
+- il prossimo build dira' se il JPEG nero era causato proprio dalla cattura di una `TextureView` non renderizzata
+- se anche cosi' il bitmap resta nero, il problema sara' quasi certamente nel contenuto della preview fornito dal backend UVC, non piu' nel timing/layout della cattura Android

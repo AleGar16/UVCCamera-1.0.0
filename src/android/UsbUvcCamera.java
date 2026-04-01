@@ -517,17 +517,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
             int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
             int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
-            String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
-            if (textureEncodedImage != null) {
-                Log.i(TAG, "Preview TextureView bitmap encoding complete");
-                clearPhotoTimeout();
-                if (photoCallback != null) {
-                    photoCallback.success(textureEncodedImage);
-                    photoCallback = null;
-                }
-                return;
-            }
-            failPendingPhoto("No preview frame available");
+            capturePreviewTextureFallbackAsync(textureWidth, textureHeight);
             return;
         }
 
@@ -621,6 +611,50 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         return result.get();
+    }
+
+    private void capturePreviewTextureFallbackAsync(int width, int height) {
+        if (previewView == null || width <= 0 || height <= 0) {
+            failPendingPhoto("No preview frame available");
+            return;
+        }
+
+        final boolean previousVisible = previewVisible;
+        final int previousX = previewViewX;
+        final int previousY = previewViewY;
+        final int previousWidth = previewViewWidth;
+        final int previousHeight = previewViewHeight;
+
+        previewVisible = true;
+        previewViewX = 0;
+        previewViewY = 0;
+        previewViewWidth = Math.max(width, previousWidth);
+        previewViewHeight = Math.max(height, previousHeight);
+        applyPreviewLayout();
+
+        Runnable restoreLayout = () -> {
+            previewVisible = previousVisible;
+            previewViewX = previousX;
+            previewViewY = previousY;
+            previewViewWidth = previousWidth;
+            previewViewHeight = previousHeight;
+            applyPreviewLayout();
+        };
+
+        previewView.postOnAnimation(() -> previewView.postOnAnimation(() -> {
+            String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
+            restoreLayout.run();
+            if (textureEncodedImage != null) {
+                Log.i(TAG, "Preview TextureView bitmap encoding complete");
+                clearPhotoTimeout();
+                if (photoCallback != null) {
+                    photoCallback.success(textureEncodedImage);
+                    photoCallback = null;
+                }
+                return;
+            }
+            failPendingPhoto("No preview frame available");
+        }));
     }
 
     private String capturePreviewTextureAsBase64OnMainThread(int width, int height) {
