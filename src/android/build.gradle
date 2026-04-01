@@ -13,10 +13,9 @@ repositories {
 }
 
 dependencies {
-    // Prefer the library module artifact documented by AUSBC itself.
-    // The top-level artifact can pull in a different packaging/layout than
-    // the actual camera library module and has shown unstable behavior on open.
-    implementation('com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.2.7') {
+    // Keep the top-level artifact because this plugin directly imports
+    // com.serenegiant.usb.* classes that are not exposed by libausbc alone.
+    implementation('com.github.jiangdongguo:AndroidUSBCamera:3.2.7') {
         exclude group: 'com.gyf.immersionbar', module: 'immersionbar'
         exclude group: 'com.zlc.glide', module: 'webpdecoder'
     }
