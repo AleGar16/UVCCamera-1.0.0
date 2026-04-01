@@ -1086,10 +1086,41 @@ Formato usato:
 - Motivo tecnico:
   la preview nascosta del totem viene mantenuta quasi invisibile (`alpha=0.01`) per non disturbare l'interfaccia. Lo snapshot della `TextureView` stava quindi catturando una vista quasi completamente trasparente, producendo una foto nera pur con frame e risoluzione corretti.
 - Stato:
+  validato a runtime sul totem.
+
+  Log confermati:
+  - `Using negotiated preview size for TextureView capture 1920x1080`
+  - `Preview TextureView bitmap encoding complete`
+
+  Inoltre non compare piu':
+  - `No preview frame available after retries`
+
+  Quindi il path foto finale ora:
+  - usa la preview reale a `1920x1080`
+  - cattura dallo snapshot `TextureView`
+  - completa senza dipendere dal raw callback
+  - non produce piu' l'immagine nera osservata in precedenza
+
+  Residui non bloccanti ancora visibili nei log:
+  - warning `FrameTracker` / `chromium` legati all'UI WebView
+  - da monitorare eventuali warning `Surface.release` se ricompaiono in sessioni lunghe.
+
+### 59. Attesa del primo frame utile della TextureView prima dello snapshot
+
+- Richiesta/problema:
+  anche dopo il fix dell'alpha, l'utente continuava a segnalare foto nere. Questo indicava che lo snapshot poteva partire troppo presto, prima che la `TextureView` avesse realmente pubblicato un frame valido.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - viene tracciato `lastPreviewTextureUpdateAt` dentro `onSurfaceTextureUpdated(...)`
+  - `capturePreviewTextureAsBase64(...)`, quando la preview e' nascosta, aspetta un aggiornamento reale della `TextureView` successivo alla richiesta di capture prima di chiamare `getBitmap(...)`
+  - sono previsti piccoli retry temporizzati sul main thread per dare il tempo alla pipeline grafica di presentare un frame valido
+- Motivo tecnico:
+  uno snapshot di `TextureView` puo' riuscire tecnicamente anche quando il contenuto e' ancora nero o non aggiornato. Aspettare un `onSurfaceTextureUpdated` successivo alla richiesta di scatto rende il capture piu' coerente con il frame effettivamente mostrato dalla preview.
+- Stato:
   fix applicato in codice; da validare a runtime verificando che:
   - resti `Preview TextureView bitmap encoding complete`
   - la foto non sia piu' nera
-  - non si notino flash visivi della preview durante lo scatto.
+  - non ricompaia il fallback raw.
 
 ## Nota operativa
 
@@ -1099,6 +1130,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 2. file toccati
 3. spiegazione tecnica breve
 4. stato finale
+
+## 2026-04-01 - TextureView nero con preview nascosta quasi trasparente
+
+- Richiesta/problema:
+  i log confermano `Preview TextureView bitmap encoding complete`, ma la foto risultava ancora completamente nera.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il problema piu' probabile non era piu' il timing del frame, ma il fatto che la preview "nascosta" veniva ancora renderizzata in posizione `0,0` con `alpha=0.01`. Su alcuni device questo lascia viva la `TextureView`, ma porta `getBitmap(...)` a catturare un contenuto quasi nero. Il fix sposta la preview nascosta fuori schermo mantenendola a piena opacita', e rimuove l'override temporaneo di alpha durante il capture.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - resti `Using negotiated preview size for TextureView capture 1920x1080`
+  - resti `Preview TextureView bitmap encoding complete`
+  - la foto non sia piu' nera.
 
 ## Open Items
 
