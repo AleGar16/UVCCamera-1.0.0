@@ -1159,3 +1159,26 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il prossimo build dovrebbe evitare le foto nere causate da un bitmap `TextureView` non affidabile, privilegiando il frame preview raw quando disponibile
+
+## 2026-04-01 - Il bitmap TextureView diventa solo fallback finale
+
+### Richiesta o problema
+
+- i log mostravano ancora `Preview TextureView bitmap encoding complete`, quindi il plugin non stava usando nessun frame raw preview nonostante i cambi precedenti
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- se `latestPreviewFrame` e' assente, il plugin ora aspetta i retry previsti per dare al canale raw una possibilita' reale di popolarsi
+- il fallback `TextureView` viene usato solo all'ultimo tentativo, come ultima spiaggia
+- sono stati aggiunti log one-shot quando arriva il primo frame dal callback preview normale o dal callback basso `UVCCamera`, cosi' il prossimo test dira' subito quale canale produce davvero dati
+- nella pulizia del callback basso viene azzerato anche `latestPreviewFrame`, per evitare di riusare frame obsoleti dopo reset/riaperture
+
+### Stato finale
+
+- il prossimo build dira' chiaramente se il totem sta consegnando frame raw preview
+- se compare `Received first preview frame ...` e poi `Using stored preview frame size ...`, avremo finalmente uno scatto fallback indipendente dalla `TextureView`

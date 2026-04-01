@@ -120,6 +120,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int latestPreviewFrameHeight = -1;
     private boolean latestPreviewFrameFromUnderlying = false;
     private String latestPreviewFrameFormat = "unknown";
+    private boolean loggedFirstPreviewFrame = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -519,13 +520,27 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
                 return;
             }
-            if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
-                Log.w(TAG, "No preview frame available after retries");
-                failPendingPhoto("No preview frame available");
+            if (attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
+                mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
                 return;
             }
-            Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
-            mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+
+            Log.w(TAG, "No preview frame available after retries, trying TextureView bitmap fallback");
+            int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+            int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
+            int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
+            String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
+            if (textureEncodedImage != null) {
+                Log.i(TAG, "Preview TextureView bitmap encoding complete");
+                clearPhotoTimeout();
+                if (photoCallback != null) {
+                    photoCallback.success(textureEncodedImage);
+                    photoCallback = null;
+                }
+                return;
+            }
+            failPendingPhoto("No preview frame available");
             return;
         }
 
@@ -1313,6 +1328,11 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrameHeight = previewHeight;
                         latestPreviewFrameFromUnderlying = false;
                         latestPreviewFrameFormat = "nv21";
+                        if (!loggedFirstPreviewFrame) {
+                            loggedFirstPreviewFrame = true;
+                            Log.i(TAG, "Received first preview frame from preview callback size="
+                                    + previewWidth + "x" + previewHeight + ", bytes=" + data.length);
+                        }
                     }
                 }
             });
@@ -1426,6 +1446,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrameHeight = -1;
             latestPreviewFrameFromUnderlying = false;
             latestPreviewFrameFormat = "unknown";
+            loggedFirstPreviewFrame = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1948,6 +1969,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrameHeight = frameHeight;
                         latestPreviewFrameFromUnderlying = true;
                         latestPreviewFrameFormat = frameFormat;
+                        if (!loggedFirstPreviewFrame) {
+                            loggedFirstPreviewFrame = true;
+                            Log.i(TAG, "Received first preview frame from underlying callback size="
+                                    + frameWidth + "x" + frameHeight + ", bytes=" + bytes.length
+                                    + ", format=" + frameFormat);
+                        }
                     }
                 }
             };
@@ -1973,10 +2000,12 @@ public class UsbUvcCamera extends CordovaPlugin {
         } finally {
             underlyingFrameCallback = null;
             synchronized (previewFrameLock) {
+                latestPreviewFrame = null;
                 latestPreviewFrameWidth = -1;
                 latestPreviewFrameHeight = -1;
                 latestPreviewFrameFromUnderlying = false;
                 latestPreviewFrameFormat = "unknown";
+                loggedFirstPreviewFrame = false;
             }
         }
     }
