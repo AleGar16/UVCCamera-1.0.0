@@ -20,6 +20,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
@@ -103,6 +104,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean previewSurfaceReady = false;
     private boolean previewVisible = false;
     private boolean underlyingPreviewTextureAttached = false;
+    private volatile long lastPreviewTextureUpdateAt = 0L;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
@@ -572,44 +574,64 @@ public class UsbUvcCamera extends CordovaPlugin {
         AtomicReference<String> result = new AtomicReference<>();
 
         mainHandler.post(() -> {
-            Bitmap bitmap = null;
-            Float originalAlpha = null;
+            long requestTime = SystemClock.uptimeMillis();
             try {
                 if (previewView == null || !previewView.isAvailable()) {
+                    latch.countDown();
                     return;
                 }
-                originalAlpha = previewView.getAlpha();
-                if (!previewVisible && originalAlpha != null && originalAlpha < 1.0f) {
-                    previewView.setAlpha(1.0f);
-                }
-                bitmap = previewView.getBitmap(width, height);
-                if (bitmap == null) {
-                    return;
-                }
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-                    if (compressed) {
-                        result.set(Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP));
+
+                Runnable[] captureRunnable = new Runnable[1];
+                captureRunnable[0] = new Runnable() {
+                    int attempts = 0;
+
+                    @Override
+                    public void run() {
+                        Bitmap bitmap = null;
+                        try {
+                            if (previewView == null || !previewView.isAvailable()) {
+                                return;
+                            }
+                            boolean shouldWaitFreshFrame = !previewVisible && lastPreviewTextureUpdateAt < requestTime;
+                            if (shouldWaitFreshFrame && attempts < 8) {
+                                attempts++;
+                                mainHandler.postDelayed(this, 50);
+                                return;
+                            }
+                            bitmap = previewView.getBitmap(width, height);
+                            if (bitmap == null) {
+                                return;
+                            }
+                            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                            try {
+                                boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+                                if (compressed) {
+                                    result.set(Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP));
+                                }
+                            } finally {
+                                try {
+                                    outputStream.close();
+                                } catch (Exception ignored) {
+                                }
+                            }
+                        } catch (Exception exception) {
+                            Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
+                        } finally {
+                            if (bitmap != null) {
+                                bitmap.recycle();
+                            }
+                            latch.countDown();
+                        }
                     }
-                } finally {
-                    try {
-                        outputStream.close();
-                    } catch (Exception ignored) {
-                    }
+                };
+
+                if (!previewVisible && lastPreviewTextureUpdateAt < requestTime) {
+                    mainHandler.postDelayed(captureRunnable[0], 50);
+                } else {
+                    captureRunnable[0].run();
                 }
             } catch (Exception exception) {
                 Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
-            } finally {
-                if (previewView != null && originalAlpha != null) {
-                    try {
-                        previewView.setAlpha(originalAlpha);
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
                 latch.countDown();
             }
         });
@@ -1079,6 +1101,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+                lastPreviewTextureUpdateAt = SystemClock.uptimeMillis();
             }
         });
 
@@ -1112,9 +1135,10 @@ public class UsbUvcCamera extends CordovaPlugin {
         int hiddenSurfaceHeight = Math.max(requestedPreviewHeight, STABLE_CAPTURE_HEIGHT);
         int width = previewVisible ? previewViewWidth : hiddenSurfaceWidth;
         int height = previewVisible ? previewViewHeight : hiddenSurfaceHeight;
-        int leftMargin = previewVisible ? previewViewX : 0;
+        int hiddenOffset = hiddenSurfaceWidth + 64;
+        int leftMargin = previewVisible ? previewViewX : -hiddenOffset;
         int topMargin = previewVisible ? previewViewY : 0;
-        float alpha = previewVisible ? 1.0f : 0.01f;
+        float alpha = 1.0f;
 
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
         params.gravity = Gravity.TOP | Gravity.START;
