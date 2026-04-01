@@ -107,6 +107,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int latestPreviewFrameWidth = -1;
     private int latestPreviewFrameHeight = -1;
     private boolean latestPreviewFrameFromUnderlying = false;
+    private String latestPreviewFrameFormat = "unknown";
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
 
     @Override
@@ -475,11 +476,13 @@ public class UsbUvcCamera extends CordovaPlugin {
         int frameWidth;
         int frameHeight;
         boolean frameFromUnderlying;
+        String frameFormat;
         synchronized (previewFrameLock) {
             frameCopy = latestPreviewFrame != null ? latestPreviewFrame.clone() : null;
             frameWidth = latestPreviewFrameWidth;
             frameHeight = latestPreviewFrameHeight;
             frameFromUnderlying = latestPreviewFrameFromUnderlying;
+            frameFormat = latestPreviewFrameFormat;
         }
 
         if (frameCopy == null) {
@@ -506,11 +509,17 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight());
+        Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight()
+                + ", frameLength=" + frameCopy.length + ", frameFormat=" + frameFormat);
         final byte[] encodedFrameData;
         if (frameFromUnderlying) {
-            encodedFrameData = convertNv12ToNv21(frameCopy);
-            Log.i(TAG, "Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding");
+            if ("yuyv".equals(frameFormat)) {
+                encodedFrameData = convertYuyvToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
+                Log.i(TAG, "Converting underlying preview frame from YUYV to NV21 before JPEG encoding");
+            } else {
+                encodedFrameData = convertNv12ToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
+                Log.i(TAG, "Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding");
+            }
         } else {
             encodedFrameData = frameCopy;
         }
@@ -1157,6 +1166,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrameWidth = previewWidth;
                         latestPreviewFrameHeight = previewHeight;
                         latestPreviewFrameFromUnderlying = false;
+                        latestPreviewFrameFormat = "nv21";
                     }
                 }
             });
@@ -1256,6 +1266,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrameWidth = -1;
             latestPreviewFrameHeight = -1;
             latestPreviewFrameFromUnderlying = false;
+            latestPreviewFrameFormat = "unknown";
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1642,11 +1653,13 @@ public class UsbUvcCamera extends CordovaPlugin {
                     int[] negotiated = getNegotiatedPreviewSize();
                     int frameWidth = negotiated[0] > 0 ? negotiated[0] : previewWidth;
                     int frameHeight = negotiated[1] > 0 ? negotiated[1] : previewHeight;
+                    String frameFormat = detectUnderlyingFrameFormat(bytes.length, frameWidth, frameHeight);
                     synchronized (previewFrameLock) {
                         latestPreviewFrame = bytes;
                         latestPreviewFrameWidth = frameWidth;
                         latestPreviewFrameHeight = frameHeight;
                         latestPreviewFrameFromUnderlying = true;
+                        latestPreviewFrameFormat = frameFormat;
                     }
                 }
             };
@@ -1675,16 +1688,32 @@ public class UsbUvcCamera extends CordovaPlugin {
                 latestPreviewFrameWidth = -1;
                 latestPreviewFrameHeight = -1;
                 latestPreviewFrameFromUnderlying = false;
+                latestPreviewFrameFormat = "unknown";
             }
         }
     }
 
-    private byte[] convertNv12ToNv21(byte[] data) {
+    private String detectUnderlyingFrameFormat(int frameLength, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return "unknown";
+        }
+        int nv21Length = width * height * 3 / 2;
+        int yuyvLength = width * height * 2;
+        if (frameLength == yuyvLength) {
+            return "yuyv";
+        }
+        if (frameLength == nv21Length) {
+            return "yuv420sp";
+        }
+        return "unknown";
+    }
+
+    private byte[] convertNv12ToNv21(byte[] data, int width, int height) {
         if (data == null || data.length < 4) {
             return data;
         }
         byte[] converted = data.clone();
-        int uvStart = (data.length * 2) / 3;
+        int uvStart = width * height;
         if (uvStart < 0 || uvStart >= data.length - 1) {
             return converted;
         }
@@ -1694,6 +1723,39 @@ public class UsbUvcCamera extends CordovaPlugin {
             converted[index + 1] = u;
         }
         return converted;
+    }
+
+    private byte[] convertYuyvToNv21(byte[] data, int width, int height) {
+        int frameSize = width * height;
+        int expectedLength = frameSize * 2;
+        if (data == null || width <= 0 || height <= 0 || data.length < expectedLength) {
+            return data;
+        }
+
+        byte[] output = new byte[frameSize + (frameSize / 2)];
+        int yIndex = 0;
+        int uvIndex = frameSize;
+
+        for (int row = 0; row < height; row++) {
+            int rowStart = row * width * 2;
+            for (int col = 0; col < width; col += 2) {
+                int offset = rowStart + (col * 2);
+                byte y0 = data[offset];
+                byte u = data[offset + 1];
+                byte y1 = data[offset + 2];
+                byte v = data[offset + 3];
+
+                output[yIndex++] = y0;
+                output[yIndex++] = y1;
+
+                if ((row & 1) == 0) {
+                    output[uvIndex++] = v;
+                    output[uvIndex++] = u;
+                }
+            }
+        }
+
+        return output;
     }
 
     private List<int[]> buildPreviewNegotiationCandidates() {
