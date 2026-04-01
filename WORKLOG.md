@@ -1005,6 +1005,32 @@ Formato usato:
   API nuova disponibile:
   - `navigator.usbUvcCamera.refocus({ focusLockDelayMs: 1800 }, success, error)`
 
+### 55. Pulizia dell'API pubblica del plugin per lasciare solo il flusso utile al totem
+
+- Richiesta/problema:
+  dopo la stabilizzazione di foto, preview e focus, il plugin esponeva ancora molte azioni legacy/diagnostiche o controlli fini non piu' necessari nel flusso reale dell'app.
+- Modifica fatta:
+  e' stata ripulita soprattutto la superficie pubblica del plugin:
+  - `execute()` ora espone solo le azioni principali utili al funzionamento del totem
+  - `www/usbUvcCamera.js` esporta solo le funzioni operative principali
+  - `README.md` e' stata semplificata sul flusso raccomandato
+
+  API lasciate pubbliche:
+  - `open`
+  - `close`
+  - `takePhoto`
+  - `recoverCamera`
+  - `showPreview`
+  - `hidePreview`
+  - `updatePreviewBounds`
+  - `listUsbDevices`
+  - `applyStableCameraProfile`
+  - `refocus`
+- Motivo tecnico:
+  ridurre la superficie pubblica abbassa il rischio di uso incoerente da parte dell'applicazione e rende il plugin piu' chiaro: un solo percorso supportato e stabile, invece di molte API nate durante la fase di debug.
+- Stato:
+  pulizia applicata in codice e documentazione. La logica interna non e' stata rimossa in modo distruttivo, cosi' resta possibile riaprire in futuro alcune funzioni se davvero serviranno.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

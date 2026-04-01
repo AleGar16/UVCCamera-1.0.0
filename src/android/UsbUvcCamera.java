@@ -205,36 +205,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return applyStableCameraProfile(args, callbackContext);
             case "listUsbDevices":
                 return listUsbDevices(callbackContext);
-            case "getCameraCapabilities":
-                return getCameraCapabilities(callbackContext);
-            case "inspectUvcDescriptors":
-                return inspectUvcDescriptors(callbackContext);
-            case "inspectBackendApi":
-                return inspectBackendApi(callbackContext);
-            case "setAutoFocus":
-                return setAutoFocus(args, callbackContext);
             case "refocus":
                 return refocus(args, callbackContext);
-            case "setFocus":
-                return setFocus(args, callbackContext);
-            case "setZoom":
-                return setZoom(args, callbackContext);
-            case "setBrightness":
-                return setBrightness(args, callbackContext);
-            case "setContrast":
-                return setContrast(args, callbackContext);
-            case "setSharpness":
-                return setSharpness(args, callbackContext);
-            case "setGain":
-                return setGain(args, callbackContext);
-            case "setAutoExposure":
-                return setAutoExposure(args, callbackContext);
-            case "setExposure":
-                return setExposure(args, callbackContext);
-            case "setAutoWhiteBalance":
-                return setAutoWhiteBalance(args, callbackContext);
-            case "setWhiteBalance":
-                return setWhiteBalance(args, callbackContext);
             default:
                 return false;
         }
