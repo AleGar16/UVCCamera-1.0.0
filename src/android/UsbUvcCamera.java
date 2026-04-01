@@ -23,11 +23,9 @@ import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.PixelCopy;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.FrameLayout;
 
 import com.jiangdg.ausbc.MultiCameraClient;
@@ -125,6 +123,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean latestPreviewFrameFromUnderlying = false;
     private String latestPreviewFrameFormat = "unknown";
     private boolean loggedFirstPreviewFrame = false;
+    private boolean loggedRejectedDarkFrame = false;
     private int underlyingFrameCallbackPixelFormatIndex = 0;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
@@ -519,11 +518,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
 
-            Log.w(TAG, "No preview frame available after retries, trying TextureView bitmap fallback");
-            int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
-            int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
-            int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
-            capturePreviewTextureFallbackAsync(textureWidth, textureHeight);
+            Log.w(TAG, "No camera-backed preview frame available after retries");
+            failPendingPhoto("No camera-backed preview frame available");
             return;
         }
 
@@ -633,152 +629,11 @@ public class UsbUvcCamera extends CordovaPlugin {
         return result.get();
     }
 
-    private void capturePreviewTextureFallbackAsync(int width, int height) {
-        if (previewView == null || width <= 0 || height <= 0) {
-            failPendingPhoto("No preview frame available");
-            return;
-        }
-
-        final boolean previousVisible = previewVisible;
-        final int previousX = previewViewX;
-        final int previousY = previewViewY;
-        final int previousWidth = previewViewWidth;
-        final int previousHeight = previewViewHeight;
-
-        previewVisible = true;
-        previewViewX = 0;
-        previewViewY = 0;
-        previewViewWidth = Math.max(width, previousWidth);
-        previewViewHeight = Math.max(height, previousHeight);
-        applyPreviewLayout();
-
-        Runnable restoreLayout = () -> {
-            previewVisible = previousVisible;
-            previewViewX = previousX;
-            previewViewY = previousY;
-            previewViewWidth = previousWidth;
-            previewViewHeight = previousHeight;
-            applyPreviewLayout();
-        };
-
-        clearPendingSurfaceTextureCapture();
-        pendingSurfaceTextureUpdatedAction = () -> capturePreviewFallbackAsync(width, height, restoreLayout);
-        pendingSurfaceTextureUpdatedTimeout = () -> {
-            if (pendingSurfaceTextureUpdatedAction == null) {
-                return;
-            }
-            Log.w(TAG, "Timed out waiting for onSurfaceTextureUpdated, capturing TextureView bitmap anyway");
-            Runnable action = pendingSurfaceTextureUpdatedAction;
-            pendingSurfaceTextureUpdatedAction = null;
-            pendingSurfaceTextureUpdatedTimeout = null;
-            action.run();
-        };
-        mainHandler.postDelayed(pendingSurfaceTextureUpdatedTimeout, 700);
-        previewView.invalidate();
-    }
-
     private void clearPendingSurfaceTextureCapture() {
         pendingSurfaceTextureUpdatedAction = null;
         if (pendingSurfaceTextureUpdatedTimeout != null) {
             mainHandler.removeCallbacks(pendingSurfaceTextureUpdatedTimeout);
             pendingSurfaceTextureUpdatedTimeout = null;
-        }
-    }
-
-    private void capturePreviewFallbackAsync(int width, int height, Runnable restoreLayout) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            capturePreviewPixelCopyAsBase64(width, height, new CaptureResultCallback() {
-                @Override
-                public void onComplete(String encodedImage) {
-                    if (encodedImage != null) {
-                        restoreLayout.run();
-                        Log.i(TAG, "Preview PixelCopy bitmap encoding complete");
-                        clearPhotoTimeout();
-                        if (photoCallback != null) {
-                            photoCallback.success(encodedImage);
-                            photoCallback = null;
-                        }
-                        return;
-                    }
-                    String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
-                    restoreLayout.run();
-                    if (textureEncodedImage != null) {
-                        Log.i(TAG, "Preview TextureView bitmap encoding complete");
-                        clearPhotoTimeout();
-                        if (photoCallback != null) {
-                            photoCallback.success(textureEncodedImage);
-                            photoCallback = null;
-                        }
-                        return;
-                    }
-                    failPendingPhoto("No preview frame available");
-                }
-            });
-            return;
-        }
-
-        String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
-        restoreLayout.run();
-        if (textureEncodedImage != null) {
-            Log.i(TAG, "Preview TextureView bitmap encoding complete");
-            clearPhotoTimeout();
-            if (photoCallback != null) {
-                photoCallback.success(textureEncodedImage);
-                photoCallback = null;
-            }
-            return;
-        }
-        failPendingPhoto("No preview frame available");
-    }
-
-    private void capturePreviewPixelCopyAsBase64(int width, int height, CaptureResultCallback callback) {
-        if (callback == null) {
-            return;
-        }
-        if (previewView == null || !previewView.isAttachedToWindow() || previewView.getWidth() <= 0 || previewView.getHeight() <= 0) {
-            Log.d(TAG, "Skipping PixelCopy capture because previewView is not attached or has invalid bounds");
-            callback.onComplete(null);
-            return;
-        }
-
-        Window window = cordova.getActivity() != null ? cordova.getActivity().getWindow() : null;
-        if (window == null) {
-            Log.d(TAG, "Skipping PixelCopy capture because activity window is null");
-            callback.onComplete(null);
-            return;
-        }
-
-        int[] location = new int[2];
-        previewView.getLocationInWindow(location);
-        Rect srcRect = new Rect(
-                location[0],
-                location[1],
-                location[0] + previewView.getWidth(),
-                location[1] + previewView.getHeight());
-        if (srcRect.width() <= 0 || srcRect.height() <= 0) {
-            Log.d(TAG, "Skipping PixelCopy capture because source rect is invalid: " + srcRect);
-            callback.onComplete(null);
-            return;
-        }
-
-        Bitmap bitmap = Bitmap.createBitmap(srcRect.width(), srcRect.height(), Bitmap.Config.ARGB_8888);
-        try {
-            PixelCopy.request(window, srcRect, bitmap, copyResult -> {
-                try {
-                    if (copyResult != PixelCopy.SUCCESS) {
-                        Log.w(TAG, "PixelCopy preview capture failed with result=" + copyResult);
-                        callback.onComplete(null);
-                        return;
-                    }
-                    callback.onComplete(encodeBitmapAsBase64Jpeg(bitmap, width, height));
-                } finally {
-                    bitmap.recycle();
-                }
-            }, mainHandler);
-        } catch (Exception exception) {
-            bitmap.recycle();
-            Log.w(TAG, "Unable to capture preview via PixelCopy", exception);
-            callback.onComplete(null);
         }
     }
 
@@ -826,45 +681,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
     }
 
-    private String encodeBitmapAsBase64Jpeg(Bitmap bitmap, int width, int height) {
-        if (bitmap == null) {
-            return null;
-        }
-
-        Bitmap bitmapToEncode = bitmap;
-        Bitmap scaledBitmap = null;
-        try {
-            if (width > 0 && height > 0 && (bitmap.getWidth() != width || bitmap.getHeight() != height)) {
-                scaledBitmap = Bitmap.createScaledBitmap(bitmap, width, height, true);
-                bitmapToEncode = scaledBitmap;
-            }
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                boolean compressed = bitmapToEncode.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-                if (compressed) {
-                    return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
-                }
-                return null;
-            } finally {
-                try {
-                    outputStream.close();
-                } catch (Exception ignored) {
-                }
-            }
-        } catch (Exception exception) {
-            Log.w(TAG, "Unable to encode preview bitmap", exception);
-            return null;
-        } finally {
-            if (scaledBitmap != null) {
-                scaledBitmap.recycle();
-            }
-        }
-    }
-
-    private interface CaptureResultCallback {
-        void onComplete(String encodedImage);
-    }
 
     private void schedulePhotoTimeout() {
         clearPhotoTimeout();
@@ -1517,6 +1333,14 @@ public class UsbUvcCamera extends CordovaPlugin {
                     if (data == null || format != DataFormat.NV21) {
                         return;
                     }
+                    if (isLikelyDarkNv21Frame(data, previewWidth, previewHeight)) {
+                        if (!loggedRejectedDarkFrame) {
+                            loggedRejectedDarkFrame = true;
+                            Log.w(TAG, "Rejecting dark preview frame from preview callback size="
+                                    + previewWidth + "x" + previewHeight + ", bytes=" + data.length);
+                        }
+                        return;
+                    }
                     synchronized (previewFrameLock) {
                         latestPreviewFrame = data.clone();
                         latestPreviewFrameWidth = previewWidth;
@@ -1642,6 +1466,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrameFromUnderlying = false;
             latestPreviewFrameFormat = "unknown";
             loggedFirstPreviewFrame = false;
+            loggedRejectedDarkFrame = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -2158,6 +1983,21 @@ public class UsbUvcCamera extends CordovaPlugin {
                     int frameWidth = negotiated[0] > 0 ? negotiated[0] : previewWidth;
                     int frameHeight = negotiated[1] > 0 ? negotiated[1] : previewHeight;
                     String frameFormat = detectUnderlyingFrameFormat(bytes.length, frameWidth, frameHeight);
+                    byte[] normalizedBytes = bytes;
+                    if ("yuyv".equals(frameFormat)) {
+                        normalizedBytes = convertYuyvToNv21(bytes, frameWidth, frameHeight);
+                    } else if ("yuv420sp".equals(frameFormat)) {
+                        normalizedBytes = convertNv12ToNv21(bytes, frameWidth, frameHeight);
+                    }
+                    if (normalizedBytes != null && isLikelyDarkNv21Frame(normalizedBytes, frameWidth, frameHeight)) {
+                        if (!loggedRejectedDarkFrame) {
+                            loggedRejectedDarkFrame = true;
+                            Log.w(TAG, "Rejecting dark preview frame from underlying callback size="
+                                    + frameWidth + "x" + frameHeight + ", bytes=" + bytes.length
+                                    + ", format=" + frameFormat);
+                        }
+                        return;
+                    }
                     synchronized (previewFrameLock) {
                         latestPreviewFrame = bytes;
                         latestPreviewFrameWidth = frameWidth;
@@ -2209,6 +2049,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 latestPreviewFrameFromUnderlying = false;
                 latestPreviewFrameFormat = "unknown";
                 loggedFirstPreviewFrame = false;
+                loggedRejectedDarkFrame = false;
             }
         }
     }
@@ -2908,6 +2749,32 @@ public class UsbUvcCamera extends CordovaPlugin {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private boolean isLikelyDarkNv21Frame(byte[] data, int width, int height) {
+        int luminanceLength = width * height;
+        if (data == null || width <= 0 || height <= 0 || data.length < luminanceLength || luminanceLength < 64) {
+            return false;
+        }
+
+        int sampleStep = Math.max(1, luminanceLength / 512);
+        long sum = 0;
+        int max = 0;
+        int samples = 0;
+        for (int index = 0; index < luminanceLength; index += sampleStep) {
+            int value = data[index] & 0xff;
+            sum += value;
+            if (value > max) {
+                max = value;
+            }
+            samples++;
+        }
+        if (samples == 0) {
+            return false;
+        }
+
+        double average = (double) sum / samples;
+        return average < 8.0 && max < 24;
     }
 
     private String encodeFileAsBase64(File file) {
