@@ -941,10 +941,69 @@ Formato usato:
 - Motivo tecnico:
   una webcam puo' accettare una stessa risoluzione in un formato e rifiutarla o degradarla in un altro. Fermarsi al primo `960x720` impediva di scoprire se `1280x720` fosse disponibile su un secondo tentativo con formato diverso.
 - Stato:
+  validato a runtime sul totem.
+
+  Log confermati:
+  - `Underlying preview negotiation attempt requested=1280x720, frameFormat=1, negotiated=960x720`
+  - `Underlying preview negotiation attempt requested=1920x1080, frameFormat=1, negotiated=1920x1080`
+  - `Underlying UVCCamera preview stream configured at target or higher, previewSize=1920x1080, frameFormat=1`
+  - `Using stored preview frame size 1920x1080`
+  - `Preview TextureView bitmap encoding complete`
+
+  Quindi l'obiettivo minimo `1280x720` e' stato superato: la sorgente reale ora arriva stabilmente a `1920x1080` sul path MJPEG basso.
+
+  Residui ancora aperti:
+  - warning `THREAD WARNING` ancora presenti su alcune exec Cordova
+  - errori `BufferQueueProducer ... connect: already connected`
+  - warning `A resource failed to call Surface.release`
+
+### 53. Riduzione dei warning Cordova e pulizia del lifecycle preview/surface
+
+- Richiesta/problema:
+  dopo la validazione a `1920x1080`, nei log restavano ancora warning di pulizia:
+  - `THREAD WARNING` su alcune exec Cordova (`takePhoto`, `listUsbDevices`, autofocus/autowhitebalance)
+  - `BufferQueueProducer ... connect: already connected`
+  - `A resource failed to call Surface.release`
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - `takePhoto()` prepara file e timeout dal `threadPool` invece di farlo nel path `exec()`
+  - `listUsbDevices()` viene eseguito nel `threadPool`
+  - `setAutoFocus()` e `setAutoWhiteBalance()` vengono eseguiti nel `threadPool`
+  - `closeCurrentCamera()` prova a fermare esplicitamente la preview bassa prima della chiusura
+  - durante `configureUnderlyingPreviewStream(...)` non viene piu' riattaccata ogni volta la stessa `SurfaceTexture` con `setPreviewTexture(...)`; resta solo l'aggiornamento del `defaultBufferSize`
+- Motivo tecnico:
+  parte dei warning dipendeva da operazioni JNI/file/USB lanciate direttamente nel thread del plugin Cordova, mentre i messaggi `already connected` erano compatibili con ri-attach ripetuti della stessa `SurfaceTexture` durante i tentativi di negoziazione preview.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - riduzione o scomparsa dei `THREAD WARNING` per `takePhoto`, `listUsbDevices`, autofocus e autowhitebalance
+  - riduzione degli errori `BufferQueueProducer ... connect: already connected`
+  - riduzione dei warning `Surface.release`.
+
+### 54. Strategia focus da totem: autofocus iniziale, lock automatico e focus persistito
+
+- Richiesta/problema:
+  sul totem l'autofocus continuo portava a un comportamento instabile: a volte il volto era a fuoco, a volte no, per effetto di hunting della webcam.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il plugin ora implementa una strategia focus piu' stabile:
+  - all'apertura camera prova ad applicare subito l'ultimo focus manuale salvato
+  - avvia un breve autofocus iniziale
+  - dopo un delay configurabile blocca il focus in manuale
+  - salva il focus bloccato in `SharedPreferences`
+  - espone anche l'azione `refocus()` per rilanciare manualmente il ciclo autofocus+lock
+
+  Sono stati aggiornati anche:
+  - `www/usbUvcCamera.js`
+  - `README.md`
+- Motivo tecnico:
+  in uno scenario kiosk la distanza soggetto-camera tende a essere abbastanza stabile. Lasciare autofocus sempre attivo e' spesso peggio che usarlo solo come fase di aggancio iniziale e poi bloccare il focus trovato.
+- Stato:
   fix applicato in codice; da validare a runtime cercando log del tipo:
-  - `Underlying preview negotiation attempt requested=1280x720, frameFormat=..., negotiated=...`
-  - `Underlying UVCCamera preview stream configured at target or higher, previewSize=1280x720, frameFormat=...`
-  - oppure, in fallback, `configured using best negotiated size=...`.
+  - `Applied stored locked focus on open, focus=...`
+  - `Smart focus autofocus pulse started, reason=camera-opened, lockDelayMs=...`
+  - `Smart focus lock applied, reason=camera-opened, focus=...`
+
+  API nuova disponibile:
+  - `navigator.usbUvcCamera.refocus({ focusLockDelayMs: 1800 }, success, error)`
 
 ## Nota operativa
 

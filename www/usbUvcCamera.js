@@ -49,6 +49,10 @@ module.exports = {
         exec(success, error, 'UsbUvcCamera', 'setAutoFocus', [!!enabled]);
     },
 
+    refocus: function(options, success, error) {
+        exec(success, error, 'UsbUvcCamera', 'refocus', [options || {}]);
+    },
+
     setFocus: function(value, success, error) {
         exec(success, error, 'UsbUvcCamera', 'setFocus', [value]);
     },

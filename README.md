@@ -51,6 +51,7 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
 - `navigator.usbUvcCamera.inspectUvcDescriptors(success, error)`
 - `navigator.usbUvcCamera.setAutoFocus(enabled, success, error)`
+- `navigator.usbUvcCamera.refocus(options, success, error)`
 - `navigator.usbUvcCamera.setFocus(value, success, error)`
 - `navigator.usbUvcCamera.setZoom(value, success, error)`
 - `navigator.usbUvcCamera.setBrightness(value, success, error)`
@@ -99,6 +100,35 @@ I controlli booleani disponibili sono:
 
 - autofocus on/off
 - auto white balance on/off
+
+Per scenari kiosk il plugin ora usa una strategia focus piu' stabile:
+
+- quando la camera apre, prova ad applicare subito l'ultimo focus buono salvato
+- avvia un breve autofocus iniziale
+- dopo un delay blocca il focus in manuale
+- salva il focus bloccato per le aperture successive
+
+Puoi anche forzare un nuovo ciclo autofocus+lock con:
+
+```javascript
+navigator.usbUvcCamera.refocus({
+  focusLockDelayMs: 1800
+}, console.log, console.error);
+```
+
+Puoi configurare la strategia dentro `applyStableCameraProfile()`:
+
+```javascript
+navigator.usbUvcCamera.applyStableCameraProfile({
+  smartFocus: true,
+  focusLockDelayMs: 1800,
+  autoExposure: true,
+  autoWhiteBalance: true,
+  brightness: 50,
+  contrast: 50,
+  sharpness: 50
+}, console.log, console.error);
+```
 
 Esempio:
 

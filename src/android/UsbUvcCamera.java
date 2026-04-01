@@ -1,6 +1,7 @@
 package com.cordova.plugin;
 
 import android.app.PendingIntent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -66,6 +67,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final String TAG = "UsbUvcCamera";
     private static final int STABLE_CAPTURE_WIDTH = 1280;
     private static final int STABLE_CAPTURE_HEIGHT = 720;
+    private static final String PREFS_NAME = "UsbUvcCameraPrefs";
+    private static final String PREF_LAST_LOCKED_FOCUS = "lastLockedFocus";
+    private static final int DEFAULT_SMART_FOCUS_LOCK_DELAY_MS = 1800;
     private static final int UVC_EXPOSURE_MODE_MANUAL = 1;
     private static final int UVC_EXPOSURE_MODE_AUTO = 2;
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
@@ -107,6 +111,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingPhotoTimeout;
     private Runnable pendingReconnect;
+    private Runnable pendingAutoFocusLock;
     private IFrameCallback underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
@@ -115,6 +120,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean latestPreviewFrameFromUnderlying = false;
     private String latestPreviewFrameFormat = "unknown";
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
+    private boolean smartFocusEnabled = true;
+    private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
 
     @Override
     protected void pluginInitialize() {
@@ -206,6 +213,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return inspectBackendApi(callbackContext);
             case "setAutoFocus":
                 return setAutoFocus(args, callbackContext);
+            case "refocus":
+                return refocus(args, callbackContext);
             case "setFocus":
                 return setFocus(args, callbackContext);
             case "setZoom":
@@ -349,24 +358,26 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean takePhoto(CallbackContext callbackContext) {
-        Log.i(TAG, "takePhoto requested");
-        photoCallback = callbackContext;
-        String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
-        File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        if (baseDir == null) {
-            callbackContext.error("External files directory not available");
-            photoCallback = null;
-            return true;
-        }
-        File storageDir = new File(baseDir, "UsbUvcCamera");
-        if (!storageDir.exists()) {
-            storageDir.mkdirs();
-        }
-        File photoFile = new File(storageDir, fileName);
-        Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
+        cordova.getThreadPool().execute(() -> {
+            Log.i(TAG, "takePhoto requested");
+            photoCallback = callbackContext;
+            String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
+            File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+            if (baseDir == null) {
+                callbackContext.error("External files directory not available");
+                photoCallback = null;
+                return;
+            }
+            File storageDir = new File(baseDir, "UsbUvcCamera");
+            if (!storageDir.exists()) {
+                storageDir.mkdirs();
+            }
+            File photoFile = new File(storageDir, fileName);
+            Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
-        schedulePhotoTimeout();
-        cordova.getThreadPool().execute(() -> attemptHighResTakePhoto(photoFile, 1));
+            mainHandler.post(this::schedulePhotoTimeout);
+            attemptHighResTakePhoto(photoFile, 1);
+        });
         return true;
     }
 
@@ -686,50 +697,52 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean listUsbDevices(CallbackContext callbackContext) {
-        try {
-            UsbManager usbManager = (UsbManager) cordova.getActivity().getSystemService(Context.USB_SERVICE);
-            if (usbManager == null) {
-                callbackContext.error("UsbManager not available");
-                return true;
-            }
-
-            JSONArray devices = new JSONArray();
-            HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-            for (UsbDevice device : deviceList.values()) {
-                JSONObject json = new JSONObject();
-                json.put("deviceName", device.getDeviceName());
-                json.put("productName", device.getProductName());
-                json.put("manufacturerName", device.getManufacturerName());
-                json.put("vendorId", device.getVendorId());
-                json.put("productId", device.getProductId());
-                json.put("interfaceCount", device.getInterfaceCount());
-                json.put("isLogitech", device.getVendorId() == 0x046d);
-
-                boolean hasVideoInterface = false;
-                JSONArray interfaces = new JSONArray();
-                for (int i = 0; i < device.getInterfaceCount(); i++) {
-                    UsbInterface usbInterface = device.getInterface(i);
-                    JSONObject interfaceJson = new JSONObject();
-                    interfaceJson.put("id", usbInterface.getId());
-                    interfaceJson.put("interfaceClass", usbInterface.getInterfaceClass());
-                    interfaceJson.put("interfaceSubclass", usbInterface.getInterfaceSubclass());
-                    interfaceJson.put("interfaceProtocol", usbInterface.getInterfaceProtocol());
-                    if (usbInterface.getInterfaceClass() == 14) {
-                        hasVideoInterface = true;
-                    }
-                    interfaces.put(interfaceJson);
+        cordova.getThreadPool().execute(() -> {
+            try {
+                UsbManager usbManager = (UsbManager) cordova.getActivity().getSystemService(Context.USB_SERVICE);
+                if (usbManager == null) {
+                    callbackContext.error("UsbManager not available");
+                    return;
                 }
 
-                json.put("hasVideoInterface", hasVideoInterface);
-                json.put("interfaces", interfaces);
-                devices.put(json);
-            }
+                JSONArray devices = new JSONArray();
+                HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+                for (UsbDevice device : deviceList.values()) {
+                    JSONObject json = new JSONObject();
+                    json.put("deviceName", device.getDeviceName());
+                    json.put("productName", device.getProductName());
+                    json.put("manufacturerName", device.getManufacturerName());
+                    json.put("vendorId", device.getVendorId());
+                    json.put("productId", device.getProductId());
+                    json.put("interfaceCount", device.getInterfaceCount());
+                    json.put("isLogitech", device.getVendorId() == 0x046d);
 
-            callbackContext.success(devices);
-        } catch (Exception e) {
-            Log.e(TAG, "Error listing USB devices", e);
-            callbackContext.error("Error listing USB devices: " + e.getMessage());
-        }
+                    boolean hasVideoInterface = false;
+                    JSONArray interfaces = new JSONArray();
+                    for (int i = 0; i < device.getInterfaceCount(); i++) {
+                        UsbInterface usbInterface = device.getInterface(i);
+                        JSONObject interfaceJson = new JSONObject();
+                        interfaceJson.put("id", usbInterface.getId());
+                        interfaceJson.put("interfaceClass", usbInterface.getInterfaceClass());
+                        interfaceJson.put("interfaceSubclass", usbInterface.getInterfaceSubclass());
+                        interfaceJson.put("interfaceProtocol", usbInterface.getInterfaceProtocol());
+                        if (usbInterface.getInterfaceClass() == 14) {
+                            hasVideoInterface = true;
+                        }
+                        interfaces.put(interfaceJson);
+                    }
+
+                    json.put("hasVideoInterface", hasVideoInterface);
+                    json.put("interfaces", interfaces);
+                    devices.put(json);
+                }
+
+                callbackContext.success(devices);
+            } catch (Exception e) {
+                Log.e(TAG, "Error listing USB devices", e);
+                callbackContext.error("Error listing USB devices: " + e.getMessage());
+            }
+        });
         return true;
     }
 
@@ -906,6 +919,8 @@ public class UsbUvcCamera extends CordovaPlugin {
             JSONObject options = args.optJSONObject(0);
             boolean autoFocus = options != null && options.has("autoFocus") ? options.optBoolean("autoFocus", false) : false;
             int focus = options != null ? clampPercent(options.optInt("focus", 0)) : 0;
+            boolean smartFocus = options == null || !options.has("smartFocus") || options.optBoolean("smartFocus", true);
+            int focusLockDelayMs = options != null ? Math.max(300, options.optInt("focusLockDelayMs", DEFAULT_SMART_FOCUS_LOCK_DELAY_MS)) : DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
             boolean autoExposure = options != null && options.has("autoExposure") ? options.optBoolean("autoExposure", true) : true;
             int exposure = options != null ? clampPercent(options.optInt("exposure", 50)) : 50;
             boolean autoWhiteBalance = options != null && options.has("autoWhiteBalance") ? options.optBoolean("autoWhiteBalance", true) : true;
@@ -914,9 +929,13 @@ public class UsbUvcCamera extends CordovaPlugin {
             int contrast = options != null ? clampPercent(options.optInt("contrast", 50)) : 50;
             int sharpness = options != null ? clampPercent(options.optInt("sharpness", 50)) : 50;
 
+            smartFocusEnabled = smartFocus;
+            smartFocusLockDelayMs = focusLockDelayMs;
+
             uvcCamera.setAutoFocus(autoFocus);
             if (!autoFocus) {
                 uvcCamera.setFocus(focus);
+                persistLockedFocus(focus);
             }
             setAutoExposureInternal(uvcCamera, autoExposure);
             if (!autoExposure) {
@@ -930,7 +949,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             uvcCamera.setContrast(contrast);
             uvcCamera.setSharpness(sharpness);
 
-            callbackContext.success("stable-profile-applied");
+            JSONObject result = new JSONObject();
+            result.put("smartFocus", smartFocusEnabled);
+            result.put("focusLockDelayMs", smartFocusLockDelayMs);
+            result.put("autoFocus", autoFocus);
+            result.put("focus", autoFocus ? getLastLockedFocus() : focus);
+            callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "applyStableCameraProfile failed", exception);
             callbackContext.error("applyStableCameraProfile failed: " + exception.getMessage());
@@ -1273,6 +1297,8 @@ public class UsbUvcCamera extends CordovaPlugin {
                         UVCCamera uvcCamera = getUnderlyingUvcCamera();
                         if (uvcCamera != null) {
                             configureUnderlyingPreviewStream(uvcCamera);
+                            applyStoredFocusIfAvailable(uvcCamera);
+                            scheduleSmartAutoFocusLock("camera-opened");
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
                         logPreviewSizes("available-preview-sizes", currentPreviewSizes);
@@ -1342,6 +1368,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private void releaseCamera() {
         clearPhotoTimeout();
         clearReconnect();
+        cancelSmartAutoFocusLock();
         closeCurrentCamera(true);
     }
 
@@ -1349,6 +1376,16 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (currentCamera != null) {
             try {
                 Log.i(TAG, "Releasing currentCamera");
+                try {
+                    UVCCamera uvcCamera = getUnderlyingUvcCamera();
+                    if (uvcCamera != null) {
+                        try {
+                            uvcCamera.stopPreview();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
                 clearUnderlyingFrameCallback();
                 currentCamera.closeCamera();
             } catch (Exception ignored) {
@@ -1365,6 +1402,98 @@ public class UsbUvcCamera extends CordovaPlugin {
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
             openingCamera = false;
+        }
+    }
+
+    private void scheduleSmartAutoFocusLock(String reason) {
+        cancelSmartAutoFocusLock();
+        if (!smartFocusEnabled) {
+            Log.i(TAG, "Smart focus disabled, skipping autofocus lock scheduling");
+            return;
+        }
+        pendingAutoFocusLock = () -> cordova.getThreadPool().execute(() -> lockCurrentAutoFocus(reason));
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera != null) {
+                uvcCamera.setAutoFocus(true);
+                Log.i(TAG, "Smart focus autofocus pulse started, reason=" + reason + ", lockDelayMs=" + smartFocusLockDelayMs);
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to start autofocus pulse before lock", exception);
+        }
+        mainHandler.postDelayed(pendingAutoFocusLock, smartFocusLockDelayMs);
+    }
+
+    private void cancelSmartAutoFocusLock() {
+        if (pendingAutoFocusLock != null) {
+            mainHandler.removeCallbacks(pendingAutoFocusLock);
+            pendingAutoFocusLock = null;
+        }
+    }
+
+    private void lockCurrentAutoFocus(String reason) {
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null || currentCamera == null || !currentCamera.isCameraOpened()) {
+                Log.w(TAG, "Skipping smart focus lock because camera is not opened");
+                return;
+            }
+            int lockedFocus = readCurrentFocusPercent(uvcCamera);
+            uvcCamera.setAutoFocus(false);
+            setPercentControlInternal(uvcCamera, lockedFocus, "Focus", "mFocusMin", "mFocusMax");
+            persistLockedFocus(lockedFocus);
+            Log.i(TAG, "Smart focus lock applied, reason=" + reason + ", focus=" + lockedFocus);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to lock current autofocus", exception);
+        } finally {
+            pendingAutoFocusLock = null;
+        }
+    }
+
+    private int readCurrentFocusPercent(UVCCamera uvcCamera) {
+        int focus = getPercentControlValue(uvcCamera, "Focus", "mFocusMin", "mFocusMax");
+        if (focus < 0) {
+            focus = getLastLockedFocus();
+        }
+        if (focus < 0) {
+            focus = 50;
+        }
+        return clampPercent(focus);
+    }
+
+    private void applyStoredFocusIfAvailable(UVCCamera uvcCamera) {
+        int savedFocus = getLastLockedFocus();
+        if (savedFocus < 0 || uvcCamera == null) {
+            return;
+        }
+        try {
+            uvcCamera.setAutoFocus(false);
+            setPercentControlInternal(uvcCamera, savedFocus, "Focus", "mFocusMin", "mFocusMax");
+            Log.i(TAG, "Applied stored locked focus on open, focus=" + savedFocus);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to apply stored locked focus on open", exception);
+        }
+    }
+
+    private void persistLockedFocus(int focusPercent) {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            preferences.edit().putInt(PREF_LAST_LOCKED_FOCUS, clampPercent(focusPercent)).apply();
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to persist locked focus", exception);
+        }
+    }
+
+    private int getLastLockedFocus() {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            if (!preferences.contains(PREF_LAST_LOCKED_FOCUS)) {
+                return -1;
+            }
+            return clampPercent(preferences.getInt(PREF_LAST_LOCKED_FOCUS, 50));
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to read persisted locked focus", exception);
+            return -1;
         }
     }
 
@@ -1731,7 +1860,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                                 Log.w(TAG, "Unable to set SurfaceTexture default buffer size for negotiation", exception);
                             }
                         }
-                        uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
                     }
                     installUnderlyingFrameCallback(uvcCamera);
                     uvcCamera.startPreview();
@@ -2109,17 +2237,36 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean setAutoFocus(JSONArray args, CallbackContext callbackContext) {
-        try {
-            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
-            if (uvcCamera == null) {
-                return true;
+        cordova.getThreadPool().execute(() -> {
+            try {
+                UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+                if (uvcCamera == null) {
+                    return;
+                }
+                boolean enabled = args.optBoolean(0, true);
+                uvcCamera.setAutoFocus(enabled);
+                callbackContext.success("ok");
+            } catch (Exception exception) {
+                callbackContext.error("setAutoFocus failed: " + exception.getMessage());
             }
-            boolean enabled = args.optBoolean(0, true);
-            uvcCamera.setAutoFocus(enabled);
-            callbackContext.success("ok");
-        } catch (Exception exception) {
-            callbackContext.error("setAutoFocus failed: " + exception.getMessage());
+        });
+        return true;
+    }
+
+    private boolean refocus(JSONArray args, CallbackContext callbackContext) {
+        JSONObject options = args.optJSONObject(0);
+        if (options != null) {
+            smartFocusLockDelayMs = Math.max(300, options.optInt("focusLockDelayMs", smartFocusLockDelayMs));
         }
+        smartFocusEnabled = true;
+        scheduleSmartAutoFocusLock("manual-refocus");
+        JSONObject result = new JSONObject();
+        try {
+            result.put("scheduled", true);
+            result.put("focusLockDelayMs", smartFocusLockDelayMs);
+        } catch (JSONException ignored) {
+        }
+        callbackContext.success(result);
         return true;
     }
 
@@ -2236,21 +2383,23 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean setAutoWhiteBalance(JSONArray args, CallbackContext callbackContext) {
-        try {
-            UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
-            if (uvcCamera == null) {
-                return true;
+        cordova.getThreadPool().execute(() -> {
+            try {
+                UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
+                if (uvcCamera == null) {
+                    return;
+                }
+                boolean enabled = args.optBoolean(0, true);
+                Log.i(TAG, "setAutoWhiteBalance requestedEnabled=" + enabled);
+                uvcCamera.setAutoWhiteBlance(enabled);
+                JSONObject result = new JSONObject();
+                result.put("requested", enabled);
+                result.put("applied", uvcCamera.getAutoWhiteBlance());
+                callbackContext.success(result);
+            } catch (Exception exception) {
+                callbackContext.error("setAutoWhiteBalance failed: " + exception.getMessage());
             }
-            boolean enabled = args.optBoolean(0, true);
-            Log.i(TAG, "setAutoWhiteBalance requestedEnabled=" + enabled);
-            uvcCamera.setAutoWhiteBlance(enabled);
-            JSONObject result = new JSONObject();
-            result.put("requested", enabled);
-            result.put("applied", uvcCamera.getAutoWhiteBlance());
-            callbackContext.success(result);
-        } catch (Exception exception) {
-            callbackContext.error("setAutoWhiteBalance failed: " + exception.getMessage());
-        }
+        });
         return true;
     }
 
