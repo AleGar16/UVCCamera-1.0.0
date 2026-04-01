@@ -9,11 +9,18 @@ Questa cartella e' indipendente dal vecchio plugin `Camera2` ed e' pronta per es
 Gia' presenti:
 
 - `open()` con backend AUSBC / AndroidUSBCamera
-- preview nativa `TextureView`
+- preview nascosta `TextureView` 1x1
 - `takePhoto()`
 - `recoverCamera()`
 - `listUsbDevices()`
 - `close()`
+
+Ancora da rifinire:
+
+- validazione runtime completa sul totem
+- `applyStableCameraProfile()`
+- hardening del recover per test 24/7
+- backend separato per foto high-res reale oltre `640x480`
 
 ## Installazione
 
@@ -41,7 +48,20 @@ cordova plugin add https://github.com/<user>/<repo>.git#main
 - `navigator.usbUvcCamera.hidePreview(success, error)`
 - `navigator.usbUvcCamera.updatePreviewBounds(options, success, error)`
 - `navigator.usbUvcCamera.listUsbDevices(success, error)`
+- `navigator.usbUvcCamera.getCameraCapabilities(success, error)`
+- `navigator.usbUvcCamera.inspectUvcDescriptors(success, error)`
+- `navigator.usbUvcCamera.setAutoFocus(enabled, success, error)`
 - `navigator.usbUvcCamera.refocus(options, success, error)`
+- `navigator.usbUvcCamera.setFocus(value, success, error)`
+- `navigator.usbUvcCamera.setZoom(value, success, error)`
+- `navigator.usbUvcCamera.setBrightness(value, success, error)`
+- `navigator.usbUvcCamera.setContrast(value, success, error)`
+- `navigator.usbUvcCamera.setSharpness(value, success, error)`
+- `navigator.usbUvcCamera.setGain(value, success, error)`
+- `navigator.usbUvcCamera.setAutoExposure(enabled, success, error)`
+- `navigator.usbUvcCamera.setExposure(value, success, error)`
+- `navigator.usbUvcCamera.setAutoWhiteBalance(enabled, success, error)`
+- `navigator.usbUvcCamera.setWhiteBalance(value, success, error)`
 - `navigator.usbUvcCamera.applyStableCameraProfile(options, success, error)`
 
 L'`open(options)` accetta anche:
@@ -61,7 +81,25 @@ navigator.usbUvcCamera.open({
 }, console.log, console.error);
 ```
 
-## Profilo Stabile
+## Controlli UVC
+
+I setter numerici attuali accettano valori percentuali `0-100`.
+
+Il plugin li rimappa ai metodi UVC della libreria sottostante per:
+
+- focus
+- zoom
+- brightness
+- contrast
+- sharpness
+- gain
+- exposure
+- white balance
+
+I controlli booleani disponibili sono:
+
+- autofocus on/off
+- auto white balance on/off
 
 Per scenari kiosk il plugin ora usa una strategia focus piu' stabile:
 
@@ -92,6 +130,37 @@ navigator.usbUvcCamera.applyStableCameraProfile({
 }, console.log, console.error);
 ```
 
+Esempio:
+
+```javascript
+navigator.usbUvcCamera.setAutoFocus(false, console.log, console.error);
+navigator.usbUvcCamera.setFocus(40, console.log, console.error);
+navigator.usbUvcCamera.setZoom(0, console.log, console.error);
+navigator.usbUvcCamera.setAutoExposure(false, console.log, console.error);
+navigator.usbUvcCamera.setExposure(35, console.log, console.error);
+navigator.usbUvcCamera.setAutoWhiteBalance(false, console.log, console.error);
+navigator.usbUvcCamera.setWhiteBalance(55, console.log, console.error);
+```
+
+## Diagnostica descriptor UVC
+
+Per capire se la webcam espone davvero descriptor still-image UVC separati dal preview stream:
+
+```javascript
+navigator.usbUvcCamera.inspectUvcDescriptors(console.log, console.error);
+```
+
+Il risultato include:
+
+- `stillImageDescriptorCount`
+- `hasStillImageDescriptor`
+- `canAttemptNativeStillPath`
+- `frameFormats`
+- `frameSizes`
+- `descriptorSubtypes`
+
+Questo serve a capire se vale la pena investire in un backend still nativo vero oppure se il device espone solo il classico percorso preview/video.
+
 ## Preview nativa
 
 La preview e' una `TextureView` Android nativa sovrapposta alla WebView, quindi non va inserita dentro un `iframe`.
@@ -116,11 +185,16 @@ navigator.usbUvcCamera.updatePreviewBounds({
 navigator.usbUvcCamera.hidePreview(console.log, console.error);
 ```
 
-## Stato Corrente
+## Roadmap high-res
 
-Il flusso consigliato per il totem e':
+Il plugin e' stato impostato per una nuova fase architetturale:
 
-- `open()` con `preferHighestResolution: true` e `preferMjpeg: true`
-- `applyStableCameraProfile()` subito dopo l'apertura
-- `takePhoto()` per lo scatto
-- `refocus()` solo quando serve rilanciare l'aggancio del fuoco
+- il backend attuale resta il riferimento per preview e controlli
+- il photo capture high-res verra' separato in un backend dedicato
+- e' gia' presente il placeholder [NativeStillCaptureBackend.java](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/src/android/NativeStillCaptureBackend.java) per la prossima integrazione reale
+- il plugin usa gia' una catena di backend high-res, pronta per dare priorita' al backend alternativo e fare fallback su AUSBC solo se necessario
+- l'analisi del vendor upstream e' documentata in [VENDOR_FINDINGS.md](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/VENDOR_FINDINGS.md)
+
+Dettagli operativi:
+
+- [HIGH_RES_BACKEND_PLAN.md](C:/Users/Ansel002/Documents/GitHub/UVCCamera-1.0.0/HIGH_RES_BACKEND_PLAN.md)

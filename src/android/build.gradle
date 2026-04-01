@@ -13,7 +13,7 @@ repositories {
 }
 
 dependencies {
-    // Fallback to the published top-level artifact,excluding demo-only deps
+    // Fallback to the published top-level artifact, excluding demo-only deps
     // that fail to resolve on the build server.
     implementation('com.github.jiangdongguo:AndroidUSBCamera:3.2.7') {
         exclude group: 'com.gyf.immersionbar', module: 'immersionbar'
