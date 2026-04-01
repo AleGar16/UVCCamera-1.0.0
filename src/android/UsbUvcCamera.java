@@ -594,48 +594,17 @@ public class UsbUvcCamera extends CordovaPlugin {
             return null;
         }
 
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return capturePreviewTextureAsBase64OnMainThread(width, height);
+        }
+
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
 
         mainHandler.post(() -> {
-            Bitmap bitmap = null;
             try {
-                if (previewView == null || !previewView.isAvailable()) {
-                    Log.d(TAG, "Skipping TextureView capture because previewView is not available");
-                    return;
-                }
-                bitmap = previewView.getBitmap(width, height);
-                if (bitmap == null) {
-                    bitmap = previewView.getBitmap();
-                    if (bitmap != null) {
-                        Log.i(TAG, "Falling back to native TextureView bitmap size "
-                                + bitmap.getWidth() + "x" + bitmap.getHeight());
-                    } else {
-                        Log.d(TAG, "TextureView bitmap capture returned null for requested size "
-                                + width + "x" + height);
-                    }
-                }
-                if (bitmap == null) {
-                    return;
-                }
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-                    if (compressed) {
-                        result.set(Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP));
-                    }
-                } finally {
-                    try {
-                        outputStream.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-            } catch (Exception exception) {
-                Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
+                result.set(capturePreviewTextureAsBase64OnMainThread(width, height));
             } finally {
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
                 latch.countDown();
             }
         });
@@ -651,6 +620,50 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         return result.get();
+    }
+
+    private String capturePreviewTextureAsBase64OnMainThread(int width, int height) {
+        Bitmap bitmap = null;
+        try {
+            if (previewView == null || !previewView.isAvailable()) {
+                Log.d(TAG, "Skipping TextureView capture because previewView is not available");
+                return null;
+            }
+            bitmap = previewView.getBitmap(width, height);
+            if (bitmap == null) {
+                bitmap = previewView.getBitmap();
+                if (bitmap != null) {
+                    Log.i(TAG, "Falling back to native TextureView bitmap size "
+                            + bitmap.getWidth() + "x" + bitmap.getHeight());
+                } else {
+                    Log.d(TAG, "TextureView bitmap capture returned null for requested size "
+                            + width + "x" + height);
+                }
+            }
+            if (bitmap == null) {
+                return null;
+            }
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            try {
+                boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+                if (compressed) {
+                    return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
+                }
+                return null;
+            } finally {
+                try {
+                    outputStream.close();
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
+            return null;
+        } finally {
+            if (bitmap != null) {
+                bitmap.recycle();
+            }
+        }
     }
 
     private void schedulePhotoTimeout() {
