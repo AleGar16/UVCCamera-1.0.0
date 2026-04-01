@@ -927,6 +927,25 @@ Formato usato:
   - `Set preview SurfaceTexture default buffer size for negotiation to 1280x720`
   - preview finale negoziata a `1280x720` invece di `960x720`.
 
+### 52. Negoziazione multi-formato MJPEG/YUYV e scelta della miglior size invece del primo successo
+
+- Richiesta/problema:
+  dai log successivi risultava che il plugin entrava correttamente nel path `TextureView`, ma la sorgente reale restava comunque a `960x720`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` la riconfigurazione bassa ora:
+  - non prova piu' un solo `frameFormat`
+  - tenta sia `MJPEG` sia `YUYV` (in ordine coerente con `preferMjpeg`)
+  - per ogni combinazione size/formato registra il risultato negoziato
+  - non si ferma al primo successo sotto-target, ma conserva la miglior size ottenuta
+  - esce subito solo se raggiunge almeno la size richiesta (`1280x720` o superiore)
+- Motivo tecnico:
+  una webcam puo' accettare una stessa risoluzione in un formato e rifiutarla o degradarla in un altro. Fermarsi al primo `960x720` impediva di scoprire se `1280x720` fosse disponibile su un secondo tentativo con formato diverso.
+- Stato:
+  fix applicato in codice; da validare a runtime cercando log del tipo:
+  - `Underlying preview negotiation attempt requested=1280x720, frameFormat=..., negotiated=...`
+  - `Underlying UVCCamera preview stream configured at target or higher, previewSize=1280x720, frameFormat=...`
+  - oppure, in fallback, `configured using best negotiated size=...`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

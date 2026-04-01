@@ -1698,42 +1698,70 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         try {
-            int frameFormat = resolvePreferredFrameFormat(uvcCamera);
+            List<Integer> frameFormats = buildPreferredFrameFormats(uvcCamera);
             List<int[]> candidates = buildPreviewNegotiationCandidates();
-            Log.i(TAG, "Configuring underlying UVCCamera preview stream frameFormat=" + frameFormat
+            Log.i(TAG, "Configuring underlying UVCCamera preview stream frameFormats=" + frameFormats
                     + ", preferMjpeg=" + preferMjpeg + ", candidates=" + describeCandidates(candidates));
-            for (int[] candidate : candidates) {
-                int candidateWidth = candidate[0];
-                int candidateHeight = candidate[1];
-                try {
-                    uvcCamera.stopPreview();
-                } catch (Exception ignored) {
+
+            int bestWidth = -1;
+            int bestHeight = -1;
+            int bestPixels = -1;
+            int bestFrameFormat = -1;
+
+            for (Integer frameFormat : frameFormats) {
+                if (frameFormat == null) {
+                    continue;
                 }
-                invokeSetPreviewSizePreferSpecificOverload(uvcCamera, candidateWidth, candidateHeight, frameFormat);
-                if (previewView != null && previewView.isAvailable()) {
-                    SurfaceTexture surfaceTexture = previewView.getSurfaceTexture();
-                    if (surfaceTexture != null) {
-                        try {
-                            surfaceTexture.setDefaultBufferSize(candidateWidth, candidateHeight);
-                            Log.i(TAG, "Set preview SurfaceTexture default buffer size for negotiation to "
-                                    + candidateWidth + "x" + candidateHeight);
-                        } catch (Exception exception) {
-                            Log.w(TAG, "Unable to set SurfaceTexture default buffer size for negotiation", exception);
+                for (int[] candidate : candidates) {
+                    int candidateWidth = candidate[0];
+                    int candidateHeight = candidate[1];
+                    try {
+                        uvcCamera.stopPreview();
+                    } catch (Exception ignored) {
+                    }
+                    invokeSetPreviewSizePreferSpecificOverload(uvcCamera, candidateWidth, candidateHeight, frameFormat);
+                    if (previewView != null && previewView.isAvailable()) {
+                        SurfaceTexture surfaceTexture = previewView.getSurfaceTexture();
+                        if (surfaceTexture != null) {
+                            try {
+                                surfaceTexture.setDefaultBufferSize(candidateWidth, candidateHeight);
+                                Log.i(TAG, "Set preview SurfaceTexture default buffer size for negotiation to "
+                                        + candidateWidth + "x" + candidateHeight);
+                            } catch (Exception exception) {
+                                Log.w(TAG, "Unable to set SurfaceTexture default buffer size for negotiation", exception);
+                            }
+                        }
+                        uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
+                    }
+                    installUnderlyingFrameCallback(uvcCamera);
+                    uvcCamera.startPreview();
+                    int[] negotiated = getNegotiatedPreviewSize();
+                    Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
+                            + ", frameFormat=" + frameFormat + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
+                    if (negotiated[0] > 0 && negotiated[1] > 0) {
+                        int negotiatedPixels = negotiated[0] * negotiated[1];
+                        if (negotiatedPixels > bestPixels) {
+                            bestWidth = negotiated[0];
+                            bestHeight = negotiated[1];
+                            bestPixels = negotiatedPixels;
+                            bestFrameFormat = frameFormat;
+                        }
+                        if (negotiated[0] >= requestedPreviewWidth && negotiated[1] >= requestedPreviewHeight) {
+                            previewWidth = negotiated[0];
+                            previewHeight = negotiated[1];
+                            Log.i(TAG, "Underlying UVCCamera preview stream configured at target or higher, previewSize="
+                                    + negotiated[0] + "x" + negotiated[1] + ", frameFormat=" + frameFormat);
+                            return;
                         }
                     }
-                    uvcCamera.setPreviewTexture(previewView.getSurfaceTexture());
                 }
-                installUnderlyingFrameCallback(uvcCamera);
-                uvcCamera.startPreview();
-                int[] negotiated = getNegotiatedPreviewSize();
-                Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
-                        + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
-                if (negotiated[0] > 0 && negotiated[1] > 0) {
-                    previewWidth = negotiated[0];
-                    previewHeight = negotiated[1];
-                    Log.i(TAG, "Underlying UVCCamera preview stream configured, previewSize=" + negotiated[0] + "x" + negotiated[1]);
-                    return;
-                }
+            }
+
+            if (bestWidth > 0 && bestHeight > 0) {
+                previewWidth = bestWidth;
+                previewHeight = bestHeight;
+                Log.i(TAG, "Underlying UVCCamera preview stream configured using best negotiated size="
+                        + bestWidth + "x" + bestHeight + ", frameFormat=" + bestFrameFormat);
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to reconfigure underlying UVCCamera preview stream", exception);
@@ -1913,6 +1941,32 @@ public class UsbUvcCamera extends CordovaPlugin {
             return mjpegFormat;
         }
         return getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_YUYV", 0);
+    }
+
+    private List<Integer> buildPreferredFrameFormats(UVCCamera uvcCamera) {
+        List<Integer> formats = new ArrayList<>();
+        int mjpegFormat = getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_MJPEG", -1);
+        int yuyvFormat = getUvcStaticInt(UVCCamera.class, "FRAME_FORMAT_YUYV", 0);
+
+        if (preferMjpeg) {
+            addFrameFormat(formats, mjpegFormat);
+            addFrameFormat(formats, yuyvFormat);
+        } else {
+            addFrameFormat(formats, yuyvFormat);
+            addFrameFormat(formats, mjpegFormat);
+        }
+
+        addFrameFormat(formats, resolvePreferredFrameFormat(uvcCamera));
+        return formats;
+    }
+
+    private void addFrameFormat(List<Integer> formats, int frameFormat) {
+        if (formats == null || frameFormat < 0) {
+            return;
+        }
+        if (!formats.contains(frameFormat)) {
+            formats.add(frameFormat);
+        }
     }
 
     private int getUvcStaticInt(Class<?> type, String fieldName, int fallback) {
