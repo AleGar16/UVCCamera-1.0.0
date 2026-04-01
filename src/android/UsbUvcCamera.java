@@ -113,6 +113,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private Runnable pendingPhotoTimeout;
     private Runnable pendingReconnect;
     private Runnable pendingAutoFocusLock;
+    private Runnable pendingSurfaceTextureUpdatedAction;
+    private Runnable pendingSurfaceTextureUpdatedTimeout;
     private IFrameCallback underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
@@ -657,7 +659,8 @@ public class UsbUvcCamera extends CordovaPlugin {
             applyPreviewLayout();
         };
 
-        previewView.postOnAnimation(() -> previewView.postOnAnimation(() -> {
+        clearPendingSurfaceTextureCapture();
+        pendingSurfaceTextureUpdatedAction = () -> {
             String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
             restoreLayout.run();
             if (textureEncodedImage != null) {
@@ -670,7 +673,27 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             failPendingPhoto("No preview frame available");
-        }));
+        };
+        pendingSurfaceTextureUpdatedTimeout = () -> {
+            if (pendingSurfaceTextureUpdatedAction == null) {
+                return;
+            }
+            Log.w(TAG, "Timed out waiting for onSurfaceTextureUpdated, capturing TextureView bitmap anyway");
+            Runnable action = pendingSurfaceTextureUpdatedAction;
+            pendingSurfaceTextureUpdatedAction = null;
+            pendingSurfaceTextureUpdatedTimeout = null;
+            action.run();
+        };
+        mainHandler.postDelayed(pendingSurfaceTextureUpdatedTimeout, 700);
+        previewView.invalidate();
+    }
+
+    private void clearPendingSurfaceTextureCapture() {
+        pendingSurfaceTextureUpdatedAction = null;
+        if (pendingSurfaceTextureUpdatedTimeout != null) {
+            mainHandler.removeCallbacks(pendingSurfaceTextureUpdatedTimeout);
+            pendingSurfaceTextureUpdatedTimeout = null;
+        }
     }
 
     private String capturePreviewTextureAsBase64OnMainThread(int width, int height) {
@@ -1168,6 +1191,15 @@ public class UsbUvcCamera extends CordovaPlugin {
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+                if (pendingSurfaceTextureUpdatedAction != null) {
+                    Runnable action = pendingSurfaceTextureUpdatedAction;
+                    pendingSurfaceTextureUpdatedAction = null;
+                    if (pendingSurfaceTextureUpdatedTimeout != null) {
+                        mainHandler.removeCallbacks(pendingSurfaceTextureUpdatedTimeout);
+                        pendingSurfaceTextureUpdatedTimeout = null;
+                    }
+                    action.run();
+                }
             }
         });
 
