@@ -507,19 +507,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         if (frameCopy == null) {
-            int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
-            int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
-            int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
-            String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
-            if (textureEncodedImage != null) {
-                Log.i(TAG, "Preview TextureView bitmap encoding complete");
-                clearPhotoTimeout();
-                if (photoCallback != null) {
-                    photoCallback.success(textureEncodedImage);
-                    photoCallback = null;
-                }
-                return;
-            }
             if (attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
                 mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
