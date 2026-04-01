@@ -36,6 +36,20 @@ Formato usato:
 - Stato:
   implementato, da validare con log runtime.
 
+### 3. Dump one-shot delle API backend reali
+
+- Richiesta/problema:
+  serviva capire quali metodi espone davvero la libreria caricata sul totem per individuare un eventuale percorso foto alternativo a `captureImage()`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` viene loggato una sola volta, all'apertura camera, uno snapshot delle API disponibili su:
+  - `CameraRequest.Builder`
+  - `MultiCameraClient.Camera`
+  - `UVCCamera`
+- Motivo tecnico:
+  permette di vedere dal `logcat` del device reale quali entrypoint preview/capture/frame sono davvero presenti nella build in uso.
+- Stato:
+  implementato, in attesa del prossimo log di apertura camera.
+
 ## 2026-03-30
 
 ### 1. Creazione plugin UVC standalone

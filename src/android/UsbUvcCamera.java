@@ -124,6 +124,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private String latestPreviewFrameFormat = "unknown";
     private boolean loggedFirstPreviewFrame = false;
     private boolean loggedRejectedDarkFrame = false;
+    private boolean loggedBackendApiSnapshot = false;
     private int underlyingFrameCallbackPixelFormatIndex = 0;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
@@ -957,6 +958,29 @@ public class UsbUvcCamera extends CordovaPlugin {
         return true;
     }
 
+    private void logBackendApiSnapshotOnce() {
+        if (loggedBackendApiSnapshot) {
+            return;
+        }
+        loggedBackendApiSnapshot = true;
+        try {
+            Log.i(TAG, "Backend API snapshot cameraRequestBuilderMethods="
+                    + collectMatchingMethodNames(CameraRequest.Builder.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render"));
+            Log.i(TAG, "Backend API snapshot multiCameraClientCameraMethods="
+                    + collectMatchingMethodNames(MultiCameraClient.Camera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render", "size"));
+            Log.i(TAG, "Backend API snapshot uvcCameraMethods="
+                    + collectMatchingMethodNames(UVCCamera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
+            Log.i(TAG, "Backend API snapshot uvcCameraFields="
+                    + collectMatchingFieldNames(UVCCamera.class,
+                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to log backend API snapshot", exception);
+        }
+    }
+
     private boolean applyStableCameraProfile(JSONArray args, CallbackContext callbackContext) {
         try {
             UVCCamera uvcCamera = requireOpenedUvcCamera(callbackContext);
@@ -1366,6 +1390,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                             configureUnderlyingPreviewStream(uvcCamera);
                             applyStoredFocusIfAvailable(uvcCamera);
                             scheduleSmartAutoFocusLock("camera-opened");
+                            logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
                         logPreviewSizes("available-preview-sizes", currentPreviewSizes);
