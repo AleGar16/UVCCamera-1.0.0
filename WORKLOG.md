@@ -1176,6 +1176,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - la preview torni ad aprirsi regolarmente
   - il flusso `takePhoto()` possa essere ritestato.
 
+## 2026-04-01 - takePhoto bloccato sul fallback TextureView anche con preview 1920x1080
+
+- Richiesta/problema:
+  i log mostrano apertura riuscita e negoziazione `1920x1080`, ma `takePhoto()` saltava il backend high-res e forzava il percorso `TextureView`, terminando con `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  c'era una scorciatoia che disabilitava il backend di capture nativo quando la preview negoziata risultava gia' "alta". In pratica pero' il path `TextureView` restava vulnerabile a preview senza frame freschi o non consumabili, quindi lo scatto falliva anche con stream 1920x1080. Ho rimosso quello skip, cosi' il plugin continua a provare il backend di capture dedicato e usa la preview solo come fallback reale.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - scompaia `Skipping captureImage backend because negotiated preview stream is already high-res`
+  - compaia il tentativo del backend high-res prima del fallback preview
+  - `takePhoto()` torni a restituire una JPEG valida.
+
 ## Open Items
 
 ### Runtime da validare
