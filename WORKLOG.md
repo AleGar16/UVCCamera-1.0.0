@@ -50,6 +50,17 @@ Formato usato:
 - Stato:
   implementato, in attesa del prossimo log di apertura camera.
 
+### 4. Rimozione riavvio preview low-level durante la negoziazione
+
+- Richiesta/problema:
+  i log runtime mostrano warning nativi `UVCCamera::window does not exist/already running/could not create thread etc.` durante la riconfigurazione del layer basso `UVCCamera`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` la funzione `configureUnderlyingPreviewStream()` non forza piu' `stopPreview()` e `startPreview()` sul `UVCCamera` sottostante mentre AUSBC gestisce gia' la preview.
+- Motivo tecnico:
+  riduce il conflitto tra il lifecycle preview di AUSBC e quello della `UVCCamera` low-level, lasciando al layer basso solo la negoziazione dimensione/formato e il tentativo di installare il frame callback.
+- Stato:
+  implementato, da validare con prossimo log runtime.
+
 ## 2026-03-30
 
 ### 1. Creazione plugin UVC standalone
