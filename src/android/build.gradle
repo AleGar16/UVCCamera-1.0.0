@@ -13,9 +13,10 @@ repositories {
 }
 
 dependencies {
-    // Fallback to the published top-level artifact, excluding demo-only deps
-    // that fail to resolve on the build server.
-    implementation('com.github.jiangdongguo:AndroidUSBCamera:3.2.7') {
+    // Prefer the library module artifact documented by AUSBC itself.
+    // The top-level artifact can pull in a different packaging/layout than
+    // the actual camera library module and has shown unstable behavior on open.
+    implementation('com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.2.7') {
         exclude group: 'com.gyf.immersionbar', module: 'immersionbar'
         exclude group: 'com.zlc.glide', module: 'webpdecoder'
     }
