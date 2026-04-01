@@ -121,6 +121,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean latestPreviewFrameFromUnderlying = false;
     private String latestPreviewFrameFormat = "unknown";
     private boolean loggedFirstPreviewFrame = false;
+    private int underlyingFrameCallbackPixelFormatIndex = 0;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -2000,10 +2001,18 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             };
 
-            int pixelFormat = getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_NV21",
-                    getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_YUV420SP", 4));
+            List<Integer> pixelFormats = buildUnderlyingFrameCallbackPixelFormats();
+            int pixelFormat;
+            if (pixelFormats.isEmpty()) {
+                pixelFormat = getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_YUV420SP", 4);
+            } else {
+                int index = Math.floorMod(underlyingFrameCallbackPixelFormatIndex, pixelFormats.size());
+                pixelFormat = pixelFormats.get(index);
+                underlyingFrameCallbackPixelFormatIndex = index + 1;
+            }
             uvcCamera.setFrameCallback(underlyingFrameCallback, pixelFormat);
-            Log.i(TAG, "Installed underlying UVCCamera frame callback with pixelFormat=" + pixelFormat);
+            Log.i(TAG, "Installed underlying UVCCamera frame callback with pixelFormat=" + pixelFormat
+                    + ", supportedCandidates=" + pixelFormats);
         } catch (Exception exception) {
             Log.w(TAG, "Unable to install underlying UVCCamera frame callback", exception);
         }
@@ -2028,6 +2037,26 @@ public class UsbUvcCamera extends CordovaPlugin {
                 latestPreviewFrameFormat = "unknown";
                 loggedFirstPreviewFrame = false;
             }
+        }
+    }
+
+    private List<Integer> buildUnderlyingFrameCallbackPixelFormats() {
+        LinkedHashSet<Integer> formats = new LinkedHashSet<>();
+        addUnderlyingFrameCallbackPixelFormat(formats, "PIXEL_FORMAT_NV21", Integer.MIN_VALUE);
+        addUnderlyingFrameCallbackPixelFormat(formats, "PIXEL_FORMAT_YUV420SP", Integer.MIN_VALUE);
+        addUnderlyingFrameCallbackPixelFormat(formats, "PIXEL_FORMAT_YUV420P", Integer.MIN_VALUE);
+        addUnderlyingFrameCallbackPixelFormat(formats, "PIXEL_FORMAT_NV12", Integer.MIN_VALUE);
+        addUnderlyingFrameCallbackPixelFormat(formats, "PIXEL_FORMAT_YUYV", Integer.MIN_VALUE);
+        if (formats.isEmpty()) {
+            formats.add(4);
+        }
+        return new ArrayList<>(formats);
+    }
+
+    private void addUnderlyingFrameCallbackPixelFormat(LinkedHashSet<Integer> formats, String fieldName, int fallback) {
+        int value = getUvcStaticInt(UVCCamera.class, fieldName, fallback);
+        if (value != fallback) {
+            formats.add(value);
         }
     }
 
