@@ -604,6 +604,17 @@ public class UsbUvcCamera extends CordovaPlugin {
                             }
                             bitmap = previewView.getBitmap(width, height);
                             if (bitmap == null) {
+                                bitmap = previewView.getBitmap();
+                                if (bitmap != null) {
+                                    Log.i(TAG, "Falling back to native TextureView bitmap size "
+                                            + bitmap.getWidth() + "x" + bitmap.getHeight()
+                                            + " after sized capture returned null for " + width + "x" + height);
+                                }
+                            }
+                            if (bitmap == null) {
+                                Log.d(TAG, "TextureView bitmap capture returned null for requested size "
+                                        + width + "x" + height + ", viewSize="
+                                        + previewView.getWidth() + "x" + previewView.getHeight());
                                 return;
                             }
                             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -1135,8 +1146,8 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        int hiddenSurfaceWidth = Math.max(requestedPreviewWidth, STABLE_CAPTURE_WIDTH);
-        int hiddenSurfaceHeight = Math.max(requestedPreviewHeight, STABLE_CAPTURE_HEIGHT);
+        int hiddenSurfaceWidth = Math.max(Math.max(requestedPreviewWidth, previewWidth), STABLE_CAPTURE_WIDTH);
+        int hiddenSurfaceHeight = Math.max(Math.max(requestedPreviewHeight, previewHeight), STABLE_CAPTURE_HEIGHT);
         int width = previewVisible ? previewViewWidth : hiddenSurfaceWidth;
         int height = previewVisible ? previewViewHeight : hiddenSurfaceHeight;
         int hiddenOffset = hiddenSurfaceWidth + 64;

@@ -1222,6 +1222,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - non compaia piu' `Skipping preview fallback because photo callback has already been resolved`
   - il timeout totale lasci abbastanza margine al fallback finale.
 
+## 2026-04-01 - TextureView fallback troppo fragile con preview nascosta e size negoziata alta
+
+- Richiesta/problema:
+  dopo il fix dei timeout, il fallback preview parte in tempo ma continua a non produrre immagine, con ripetuti `Preview frame not ready yet` e chiusura su `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il fallback `TextureView` stava tentando di leggere direttamente la size negoziata (`1920x1080`), mentre la preview nascosta poteva ancora avere dimensioni layout inferiori legate alla richiesta iniziale. Questo puo' far tornare `getBitmap(width,height)` a `null` senza errori espliciti. Ho quindi allineato la dimensione della preview nascosta anche alla size negoziata corrente e aggiunto un fallback a `previewView.getBitmap()` nativo quando la cattura dimensionata fallisce, con logging esplicito delle dimensioni reali.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - compaiano eventualmente i nuovi log di fallback bitmap invece del silenzio
+  - il `TextureView` nascosto abbia dimensioni compatibili con la preview negoziata
+  - almeno uno tra snapshot TextureView e frame cached riesca finalmente a completare `takePhoto()`.
+
 ## Open Items
 
 ### Runtime da validare
