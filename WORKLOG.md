@@ -874,6 +874,26 @@ Formato usato:
   - presenza del log `Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding`
   - resa visiva corretta della foto salvata.
 
+### 49. Rilevamento formato reale del frame basso e conversione YUYV -> NV21
+
+- Richiesta/problema:
+  anche dopo la conversione `NV12 -> NV21`, la foto risultava ancora molto corrotta, con pattern compatibile con un frame packed interpretato come semiplanare.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il plugin ora:
+  - salva anche `latestPreviewFrameFormat`
+  - rileva il formato del frame basso dalla lunghezza reale del buffer:
+    - `width * height * 2` -> `yuyv`
+    - `width * height * 3 / 2` -> `yuv420sp`
+  - scrive nei log la size, la lunghezza del frame e il formato rilevato
+  - se il formato e' `yuyv`, converte il buffer in `NV21` prima della JPEG
+- Motivo tecnico:
+  l'immagine corrotta osservata sul totem e' molto piu' compatibile con un frame `YUYV` interpretato come `NV21` che con un semplice swap `NV12/NV21`. La conversione packed -> semiplanar e' quindi il tentativo piu' plausibile e piu' strutturato.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando se il log mostra:
+  - `frameFormat=yuyv`
+  - `Converting underlying preview frame from YUYV to NV21 before JPEG encoding`
+  e se la foto diventa visivamente corretta.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
