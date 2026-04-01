@@ -1093,3 +1093,26 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - il prossimo build dovrebbe evitare il race in cui il timeout totale scade prima del fallback preview
 - se la `TextureView` e' davvero disponibile sul totem, il fallback dovrebbe riuscire anche senza `latestPreviewFrame`
 - se anche cosi' resta il `Times out` del backend high-res, il problema residuo sara' isolato soprattutto dentro `captureImageInternal` della libreria AUSBC
+
+## 2026-04-01 - Fix deadlock leggero nel fallback TextureView
+
+### Richiesta o problema
+
+- i log runtime mostravano che ogni fallback preview impiegava sempre circa `1500 ms`, con `Timed out while capturing preview TextureView bitmap`, `Skipped 90+ frames` e forte jank del main thread
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `attemptTakePhoto()` viene richiamato sul main thread dopo il fallimento del backend high-res
+- `capturePreviewTextureAsBase64()` pero' postava un task sul main thread e poi faceva `await()` sullo stesso thread: non era un deadlock totale, ma di fatto bloccava il main thread fino al timeout del latch
+- il metodo ora rileva quando e' gia' sul main thread ed esegue la cattura `TextureView` in modo diretto e sincrono, senza `post + await`
+- la logica comune di lettura bitmap/compressione JPEG e' stata spostata in un helper dedicato per mantenere identico il comportamento tra chiamata diretta e chiamata asincrona
+
+### Stato finale
+
+- il prossimo build non dovrebbe piu' mostrare timeout `1500 ms` sistematici del fallback `TextureView`
+- se la preview esiste davvero, ora il fallback puo' completare subito invece di autosabotarsi bloccando il thread UI
