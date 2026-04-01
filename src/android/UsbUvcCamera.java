@@ -475,6 +475,28 @@ public class UsbUvcCamera extends CordovaPlugin {
             frameFormat = latestPreviewFrameFormat;
         }
 
+        PreviewSize frameSize = null;
+        if (frameWidth > 0 && frameHeight > 0) {
+            frameSize = new PreviewSize(frameWidth, frameHeight);
+            Log.i(TAG, "Using stored preview frame size " + frameWidth + "x" + frameHeight);
+        } else if (previewWidth > 0 && previewHeight > 0) {
+            frameSize = new PreviewSize(previewWidth, previewHeight);
+            Log.i(TAG, "Using negotiated preview size for TextureView capture " + previewWidth + "x" + previewHeight);
+        }
+
+        if (frameSize != null) {
+            String textureEncodedImage = capturePreviewTextureAsBase64(frameSize.getWidth(), frameSize.getHeight());
+            if (textureEncodedImage != null) {
+                Log.i(TAG, "Preview TextureView bitmap encoding complete");
+                clearPhotoTimeout();
+                if (photoCallback != null) {
+                    photoCallback.success(textureEncodedImage);
+                    photoCallback = null;
+                }
+                return;
+            }
+        }
+
         if (frameCopy == null) {
             if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.w(TAG, "No preview frame available after retries");
@@ -486,27 +508,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        PreviewSize frameSize;
-        if (frameWidth > 0 && frameHeight > 0) {
-            frameSize = new PreviewSize(frameWidth, frameHeight);
-            Log.i(TAG, "Using stored preview frame size " + frameWidth + "x" + frameHeight);
-        } else {
+        if (frameSize == null) {
             frameSize = resolvePreviewSizeForFrame(frameCopy.length);
         }
         if (frameSize == null) {
             Log.e(TAG, "Unable to resolve preview size for frame length " + frameCopy.length);
             failPendingPhoto("Unable to resolve preview size");
-            return;
-        }
-
-        String textureEncodedImage = capturePreviewTextureAsBase64(frameSize.getWidth(), frameSize.getHeight());
-        if (textureEncodedImage != null) {
-            Log.i(TAG, "Preview TextureView bitmap encoding complete");
-            clearPhotoTimeout();
-            if (photoCallback != null) {
-                photoCallback.success(textureEncodedImage);
-                photoCallback = null;
-            }
             return;
         }
 
