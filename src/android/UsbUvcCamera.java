@@ -76,6 +76,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 12000;
+    private static final int HIGH_RES_CAPTURE_TIMEOUT_MS = 3500;
     private static final int HIGH_RES_CAPTURE_POLL_INTERVAL_MS = 200;
     private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
@@ -409,7 +410,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 100,
                 "uvc:" + currentDevice.getVendorId() + ":" + currentDevice.getProductId(),
                 photoFile.getAbsolutePath(),
-                TAKE_PHOTO_TIMEOUT_MS
+                HIGH_RES_CAPTURE_TIMEOUT_MS
         );
 
         cordova.getThreadPool().execute(() -> {

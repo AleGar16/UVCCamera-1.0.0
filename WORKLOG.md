@@ -1206,6 +1206,22 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - il fallback preview possa partire senza `photoCallback` gia' chiusa
   - sparisca o si riduca molto `No preview frame available after retries`.
 
+## 2026-04-01 - backend AUSBC bloccato in polling anche dopo onError
+
+- Richiesta/problema:
+  i log mostrano `captureImage onError Times out` dopo circa 3 secondi, ma il backend AUSBC continua comunque a restare dentro il polling del file fino a quasi la fine del timeout totale, impedendo al fallback preview di partire in tempo.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `src/android/AusbcHighResPhotoCaptureBackend.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il timeout del backend high-res e il timeout complessivo dello scatto erano ancora troppo vicini, e in piu' `AusbcHighResPhotoCaptureBackend` ignorava il callback `onError`, continuando ad aspettare un file che non sarebbe mai arrivato. Ho separato i timeout usando un limite dedicato piu' corto per `captureImage` e ho fatto terminare subito il backend appena AUSBC segnala errore, cosi' il fallback puo' partire diversi secondi prima del timeout globale.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - `captureImage onError Times out` sia seguito quasi subito dal fallback preview
+  - non compaia piu' `Skipping preview fallback because photo callback has already been resolved`
+  - il timeout totale lasci abbastanza margine al fallback finale.
+
 ## Open Items
 
 ### Runtime da validare
