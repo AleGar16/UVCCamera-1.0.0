@@ -51,6 +51,22 @@ Formato usato:
 - Stato:
   implementato.
 
+### 0d. Implementazione del backend still nativo offscreen
+
+- Richiesta/problema:
+  `ausbc-capture-image` continua a restituire `640x480`, quindi serve un tentativo still alternativo che provi a sfruttare direttamente `UVCCamera` alla risoluzione preview realmente negoziata.
+- Modifica fatta:
+  implementato `src/android/NativeStillCaptureBackend.java`:
+  - usa `UVCCamera.startCapture(Surface)` verso una `ImageReader` offscreen in `RGBA_8888`
+  - acquisisce un frame alla size preview corrente del layer UVC
+  - lo converte in JPEG qualita' `100`
+  - salva anche il file su `outputPath`
+  inoltre `src/android/UsbUvcCamera.java` ora passa il riferimento all'`UVCCamera` sottostante al backend nativo.
+- Motivo tecnico:
+  questo backend entra come primo tentativo nel composito e prova a superare il limite di `captureImage()` di AUSBC senza toccare il fallback preview-based che oggi funziona.
+- Stato:
+  implementato, da verificare su device con log runtime.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:
