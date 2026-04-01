@@ -1191,6 +1191,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - compaia il tentativo del backend high-res prima del fallback preview
   - `takePhoto()` torni a restituire una JPEG valida.
 
+## 2026-04-01 - fallback foto interrotto da timeout globale e frame callback troppo esclusiva
+
+- Richiesta/problema:
+  i log mostrano che il backend `captureImage` parte correttamente ma termina con timeout, poi il plugin passa al fallback preview; tuttavia il timeout globale scatta prima che il fallback finisca e il buffer preview resta vuoto fino a `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  c'erano due problemi concatenati. Primo: il timeout totale di scatto era troppo corto rispetto alla somma `captureImage` + fallback preview, quindi `photoCallback` poteva andare in errore prima che il fallback avesse una chance reale. Secondo: il callback NV21 di `MultiCameraClient` veniva ignorato appena era installato `underlyingFrameCallback`, quindi se il frame callback basso livello non produceva dati utili, il fallback restava senza nessun frame cached. Ho aumentato il timeout totale a 12 secondi, riarmo il timeout quando si passa dal backend high-res al fallback preview e lascio sempre aggiornare il buffer preview anche dal callback NV21 di AUSBC.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - `UVC capture timeout after 6000 ms` non compaia piu'
+  - il fallback preview possa partire senza `photoCallback` gia' chiusa
+  - sparisca o si riduca molto `No preview frame available after retries`.
+
 ## Open Items
 
 ### Runtime da validare

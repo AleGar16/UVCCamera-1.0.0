@@ -75,7 +75,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int UVC_EXPOSURE_MODE_AUTO = 2;
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
-    private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
+    private static final int TAKE_PHOTO_TIMEOUT_MS = 12000;
     private static final int HIGH_RES_CAPTURE_POLL_INTERVAL_MS = 200;
     private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
@@ -428,7 +428,14 @@ public class UsbUvcCamera extends CordovaPlugin {
                 });
             } catch (Exception exception) {
                 Log.w(TAG, "High-res backend failed, falling back to preview frame", exception);
-                cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, 1));
+                mainHandler.post(() -> {
+                    if (photoCallback == null) {
+                        Log.w(TAG, "Skipping preview fallback because photo callback has already been resolved");
+                        return;
+                    }
+                    schedulePhotoTimeout();
+                    cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, 1));
+                });
             }
         });
     }
@@ -1291,9 +1298,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         return;
                     }
                     synchronized (previewFrameLock) {
-                        if (underlyingFrameCallback != null) {
-                            return;
-                        }
                         latestPreviewFrame = data.clone();
                         latestPreviewFrameWidth = previewWidth;
                         latestPreviewFrameHeight = previewHeight;
