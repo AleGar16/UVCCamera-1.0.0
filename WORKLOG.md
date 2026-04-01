@@ -1116,3 +1116,24 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build non dovrebbe piu' mostrare timeout `1500 ms` sistematici del fallback `TextureView`
 - se la preview esiste davvero, ora il fallback puo' completare subito invece di autosabotarsi bloccando il thread UI
+
+## 2026-04-01 - Fix bitmap nero dal fallback TextureView
+
+### Richiesta o problema
+
+- dopo il fix del deadlock il fallback `TextureView` completava correttamente, ma la foto risultante era completamente nera
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- la preview "nascosta" veniva mantenuta con `alpha = 0.01f` a schermo; questo preservava il `SurfaceTexture`, ma rischiava di produrre bitmap quasi neri quando il fallback leggeva la `TextureView`
+- il layout hidden ora tiene la preview opaca (`alpha = 1.0f`) e la sposta offscreen a sinistra, invece di attenuarla quasi a zero dentro il viewport
+- la size hidden usa anche la preview realmente negoziata (`previewWidth` / `previewHeight`) oltre alle dimensioni richieste e alla size stabile di capture
+
+### Stato finale
+
+- il prossimo build dovrebbe continuare a permettere il fallback `TextureView`, ma senza generare un JPEG nero a causa dell'alpha quasi nullo della view
