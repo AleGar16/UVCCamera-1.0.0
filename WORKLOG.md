@@ -1044,3 +1044,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - `takePhoto()` chiamato senza camera pronta
 - `recoverCamera()` chiamato senza camera disponibile
 - app lasciata aperta per molte ore con webcam collegata
+
+## 2026-04-01 - Riallineamento takePhoto high-res
+
+### Richiesta o problema
+
+- i log runtime del totem mostravano ancora `Skipping captureImage backend because negotiated preview stream is already high-res: 1920x1080`
+- questo faceva deviare `takePhoto()` direttamente sul fallback preview, che nel caso osservato non aveva frame pronti e finiva con `No preview frame available after retries`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- in `attemptHighResTakePhoto()` e' stato rimosso il bypass che saltava il backend `captureImage` quando la preview negoziata superava `640x480`
+- il plugin ora mantiene attivo il backend high-res anche con preview gia' a `1920x1080` e scrive un log esplicito di conferma invece di forzare il fallback preview
+
+### Stato finale
+
+- il prossimo build del plugin provera' davvero il backend high-res nel flusso `takePhoto()`
+- resta da validare su device se il backend high-res completa lo scatto oppure se emerge il crash nativo separato dentro `updateCameraParams()`
