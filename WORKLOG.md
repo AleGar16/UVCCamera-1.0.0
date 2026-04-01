@@ -894,6 +894,39 @@ Formato usato:
   - `Converting underlying preview frame from YUYV to NV21 before JPEG encoding`
   e se la foto diventa visivamente corretta.
 
+### 50. Snapshot della TextureView come percorso foto primario per bypassare i raw frame corrotti
+
+- Richiesta/problema:
+  anche dopo i tentativi di conversione raw (`NV12/NV21`, `YUYV -> NV21`), la foto risultava ancora corrotta in modo evidente.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` `attemptTakePhoto()` ora prova prima a catturare un bitmap direttamente dalla `TextureView` della preview usando `previewView.getBitmap(width, height)` alla size negoziata, comprime quel bitmap in JPEG e restituisce il base64 risultante.
+
+  Il vecchio percorso raw resta come fallback se lo snapshot della `TextureView` fallisce o va in timeout.
+- Motivo tecnico:
+  la `TextureView` contiene il frame gia' passato attraverso la pipeline grafica Android, quindi evita completamente i problemi di parsing manuale del `ByteBuffer` raw: pixel format, semiplanar/packed, stride e padding. Se la preview si vede correttamente, questo e' il modo piu' robusto per ottenere una foto coerente.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - presenza del log `Preview TextureView bitmap encoding complete`
+  - assenza di fallback al path raw
+  - resa visiva corretta della foto finale.
+
+### 51. Surface di cattura stabile a 1280x720 e defaultBufferSize esplicito della TextureView
+
+- Richiesta/problema:
+  l'obiettivo successivo era puntare in modo stabile ad almeno `1280x720`, invece di fermarsi sistematicamente a `960x720`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - la `TextureView` usata come preview/capture surface, quando la preview utente e' nascosta, non resta piu' a `1x1`, ma mantiene almeno una dimensione stabile `1280x720`
+  - viene impostato esplicitamente `SurfaceTexture.setDefaultBufferSize(...)`
+  - durante ogni tentativo di negoziazione bassa, prima di riagganciare la texture alla `UVCCamera`, il `defaultBufferSize` viene riallineato alla candidate size (`1280x720`, `1920x1080`, ecc.)
+- Motivo tecnico:
+  una surface quasi nulla (`1x1`) puo' spingere la pipeline grafica o la libreria sottostante a degradare il buffer reale. Mantenere una capture surface coerente con il target e' il passo piu' sensato per tentare un `1280x720` stabile senza cambiare ancora backend.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - `Updated preview SurfaceTexture default buffer size to 1280x720` o superiore
+  - `Set preview SurfaceTexture default buffer size for negotiation to 1280x720`
+  - preview finale negoziata a `1280x720` invece di `960x720`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
