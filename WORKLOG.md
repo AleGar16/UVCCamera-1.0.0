@@ -10,6 +10,19 @@ Formato usato:
 - motivo tecnico
 - stato
 
+## 2026-04-01
+
+### 1. Fallback foto preview con PixelCopy
+
+- Richiesta/problema:
+  dopo i timeout del backend `captureImage()` e l'assenza di frame dal callback raw UVC, il fallback `TextureView.getBitmap()` continuava a produrre JPEG neri.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il fallback finale foto ora prova prima una cattura `PixelCopy` della finestra sul rettangolo reale della preview resa temporaneamente visibile; `TextureView.getBitmap()` resta come ripiego secondario.
+- Motivo tecnico:
+  `PixelCopy` legge il contenuto compositato della finestra e puo' riuscire anche quando la texture UVC non e' leggibile correttamente tramite `getBitmap()`.
+- Stato:
+  implementato, da validare sul totem con nuovo build/log runtime.
+
 ## 2026-03-30
 
 ### 1. Creazione plugin UVC standalone

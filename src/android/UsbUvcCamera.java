@@ -23,9 +23,11 @@ import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.PixelCopy;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.FrameLayout;
 
 import com.jiangdg.ausbc.MultiCameraClient;
@@ -660,20 +662,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         };
 
         clearPendingSurfaceTextureCapture();
-        pendingSurfaceTextureUpdatedAction = () -> {
-            String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
-            restoreLayout.run();
-            if (textureEncodedImage != null) {
-                Log.i(TAG, "Preview TextureView bitmap encoding complete");
-                clearPhotoTimeout();
-                if (photoCallback != null) {
-                    photoCallback.success(textureEncodedImage);
-                    photoCallback = null;
-                }
-                return;
-            }
-            failPendingPhoto("No preview frame available");
-        };
+        pendingSurfaceTextureUpdatedAction = () -> capturePreviewFallbackAsync(width, height, restoreLayout);
         pendingSurfaceTextureUpdatedTimeout = () -> {
             if (pendingSurfaceTextureUpdatedAction == null) {
                 return;
@@ -693,6 +682,103 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (pendingSurfaceTextureUpdatedTimeout != null) {
             mainHandler.removeCallbacks(pendingSurfaceTextureUpdatedTimeout);
             pendingSurfaceTextureUpdatedTimeout = null;
+        }
+    }
+
+    private void capturePreviewFallbackAsync(int width, int height, Runnable restoreLayout) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            capturePreviewPixelCopyAsBase64(width, height, new CaptureResultCallback() {
+                @Override
+                public void onComplete(String encodedImage) {
+                    if (encodedImage != null) {
+                        restoreLayout.run();
+                        Log.i(TAG, "Preview PixelCopy bitmap encoding complete");
+                        clearPhotoTimeout();
+                        if (photoCallback != null) {
+                            photoCallback.success(encodedImage);
+                            photoCallback = null;
+                        }
+                        return;
+                    }
+                    String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
+                    restoreLayout.run();
+                    if (textureEncodedImage != null) {
+                        Log.i(TAG, "Preview TextureView bitmap encoding complete");
+                        clearPhotoTimeout();
+                        if (photoCallback != null) {
+                            photoCallback.success(textureEncodedImage);
+                            photoCallback = null;
+                        }
+                        return;
+                    }
+                    failPendingPhoto("No preview frame available");
+                }
+            });
+            return;
+        }
+
+        String textureEncodedImage = capturePreviewTextureAsBase64OnMainThread(width, height);
+        restoreLayout.run();
+        if (textureEncodedImage != null) {
+            Log.i(TAG, "Preview TextureView bitmap encoding complete");
+            clearPhotoTimeout();
+            if (photoCallback != null) {
+                photoCallback.success(textureEncodedImage);
+                photoCallback = null;
+            }
+            return;
+        }
+        failPendingPhoto("No preview frame available");
+    }
+
+    private void capturePreviewPixelCopyAsBase64(int width, int height, CaptureResultCallback callback) {
+        if (callback == null) {
+            return;
+        }
+        if (previewView == null || !previewView.isAttachedToWindow() || previewView.getWidth() <= 0 || previewView.getHeight() <= 0) {
+            Log.d(TAG, "Skipping PixelCopy capture because previewView is not attached or has invalid bounds");
+            callback.onComplete(null);
+            return;
+        }
+
+        Window window = cordova.getActivity() != null ? cordova.getActivity().getWindow() : null;
+        if (window == null) {
+            Log.d(TAG, "Skipping PixelCopy capture because activity window is null");
+            callback.onComplete(null);
+            return;
+        }
+
+        int[] location = new int[2];
+        previewView.getLocationInWindow(location);
+        Rect srcRect = new Rect(
+                location[0],
+                location[1],
+                location[0] + previewView.getWidth(),
+                location[1] + previewView.getHeight());
+        if (srcRect.width() <= 0 || srcRect.height() <= 0) {
+            Log.d(TAG, "Skipping PixelCopy capture because source rect is invalid: " + srcRect);
+            callback.onComplete(null);
+            return;
+        }
+
+        Bitmap bitmap = Bitmap.createBitmap(srcRect.width(), srcRect.height(), Bitmap.Config.ARGB_8888);
+        try {
+            PixelCopy.request(window, srcRect, bitmap, copyResult -> {
+                try {
+                    if (copyResult != PixelCopy.SUCCESS) {
+                        Log.w(TAG, "PixelCopy preview capture failed with result=" + copyResult);
+                        callback.onComplete(null);
+                        return;
+                    }
+                    callback.onComplete(encodeBitmapAsBase64Jpeg(bitmap, width, height));
+                } finally {
+                    bitmap.recycle();
+                }
+            }, mainHandler);
+        } catch (Exception exception) {
+            bitmap.recycle();
+            Log.w(TAG, "Unable to capture preview via PixelCopy", exception);
+            callback.onComplete(null);
         }
     }
 
@@ -738,6 +824,46 @@ public class UsbUvcCamera extends CordovaPlugin {
                 bitmap.recycle();
             }
         }
+    }
+
+    private String encodeBitmapAsBase64Jpeg(Bitmap bitmap, int width, int height) {
+        if (bitmap == null) {
+            return null;
+        }
+
+        Bitmap bitmapToEncode = bitmap;
+        Bitmap scaledBitmap = null;
+        try {
+            if (width > 0 && height > 0 && (bitmap.getWidth() != width || bitmap.getHeight() != height)) {
+                scaledBitmap = Bitmap.createScaledBitmap(bitmap, width, height, true);
+                bitmapToEncode = scaledBitmap;
+            }
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            try {
+                boolean compressed = bitmapToEncode.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+                if (compressed) {
+                    return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
+                }
+                return null;
+            } finally {
+                try {
+                    outputStream.close();
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to encode preview bitmap", exception);
+            return null;
+        } finally {
+            if (scaledBitmap != null) {
+                scaledBitmap.recycle();
+            }
+        }
+    }
+
+    private interface CaptureResultCallback {
+        void onComplete(String encodedImage);
     }
 
     private void schedulePhotoTimeout() {
