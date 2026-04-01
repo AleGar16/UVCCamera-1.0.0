@@ -12,16 +12,29 @@ Formato usato:
 
 ## 2026-04-01
 
-### 1. Fallback foto preview con PixelCopy
+### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:
-  dopo i timeout del backend `captureImage()` e l'assenza di frame dal callback raw UVC, il fallback `TextureView.getBitmap()` continuava a produrre JPEG neri.
+  il fallback finale basato su contenuto renderizzato (`TextureView`/`PixelCopy`) non rispetta il requisito di fare una foto dalla camera, ma finisce per comportarsi come una cattura della preview a schermo.
 - Modifica fatta:
-  in `src/android/UsbUvcCamera.java` il fallback finale foto ora prova prima una cattura `PixelCopy` della finestra sul rettangolo reale della preview resa temporaneamente visibile; `TextureView.getBitmap()` resta come ripiego secondario.
+  in `src/android/UsbUvcCamera.java` e' stato rimosso il fallback screenshot-based; `takePhoto()` ora considera validi solo percorsi camera-backed:
+  - `captureImage()` del backend AUSBC
+  - frame raw realmente consegnati dal callback preview/UVC
 - Motivo tecnico:
-  `PixelCopy` legge il contenuto compositato della finestra e puo' riuscire anche quando la texture UVC non e' leggibile correttamente tramite `getBitmap()`.
+  se i percorsi camera-backed non consegnano dati reali, e' preferibile fallire in modo esplicito piuttosto che restituire un'immagine che non proviene davvero dal sensore.
 - Stato:
-  implementato, da validare sul totem con nuovo build/log runtime.
+  implementato.
+
+### 2. Filtro dei preview frame quasi neri
+
+- Richiesta/problema:
+  in alcuni casi il plugin riceve buffer preview formalmente validi ma visivamente quasi neri; questi venivano comunque convertiti in JPEG neri.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` i frame NV21 con luminanza media e picco troppo bassi vengono scartati sia dal preview callback AUSBC sia dal callback basso `UVCCamera`.
+- Motivo tecnico:
+  evita di trattare come "foto riuscita" un frame iniziale/vuoto/nero del backend preview.
+- Stato:
+  implementato, da validare con log runtime.
 
 ## 2026-03-30
 
