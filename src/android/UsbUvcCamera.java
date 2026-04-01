@@ -1938,10 +1938,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                 for (int[] candidate : candidates) {
                     int candidateWidth = candidate[0];
                     int candidateHeight = candidate[1];
-                    try {
-                        uvcCamera.stopPreview();
-                    } catch (Exception ignored) {
-                    }
                     invokeSetPreviewSizePreferSpecificOverload(uvcCamera, candidateWidth, candidateHeight, frameFormat);
                     if (previewView != null && previewView.isAvailable()) {
                         SurfaceTexture surfaceTexture = previewView.getSurfaceTexture();
@@ -1956,7 +1952,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         }
                     }
                     installUnderlyingFrameCallback(uvcCamera);
-                    uvcCamera.startPreview();
                     int[] negotiated = getNegotiatedPreviewSize();
                     Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
                             + ", frameFormat=" + frameFormat + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
