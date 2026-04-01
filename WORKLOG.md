@@ -1161,6 +1161,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - spariscano o si riducano molto gli `Skipped ... frames`
   - resti `Preview TextureView bitmap encoding complete`.
 
+## 2026-04-01 - Crash nativo AUSBC/UVCCamera in openCameraInternal
+
+- Richiesta/problema:
+  in apertura webcam il processo andava in abort con `attempting to detach while still running code`, con stack dentro `UVCStatusCallback::uvc_status_callback`, `UVCCamera.updateCameraParams` e `MultiCameraClient$Camera.openCameraInternal`.
+- File toccati:
+  - `src/android/build.gradle`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il plugin stava ancora dipendendo dall'artefatto top-level `com.github.jiangdongguo:AndroidUSBCamera:3.2.7`, introdotto come fallback. La documentazione ufficiale AUSBC invece usa il modulo `com.github.jiangdongguo.AndroidUSBCamera:libausbc:<version>`. Ho riallineato la dipendenza al modulo libreria corretto per evitare packaging/layout nativi potenzialmente incoerenti che possono spiegare il crash nel path di apertura camera.
+- Stato finale:
+  workaround applicato lato dipendenze; da validare ricostruendo e verificando che:
+  - l'apertura non abortisca piu' in `UVCStatusCallback::uvc_status_callback`
+  - la preview torni ad aprirsi regolarmente
+  - il flusso `takePhoto()` possa essere ritestato.
+
 ## Open Items
 
 ### Runtime da validare
