@@ -1052,6 +1052,27 @@ Formato usato:
   - assenza di `No preview frame available after retries`
   - ritorno del path `Preview TextureView bitmap encoding complete`.
 
+### 57. Priorita' corretta del path TextureView in takePhoto()
+
+- Richiesta/problema:
+  dai log successivi risultava una regressione logica nel flusso foto:
+  - preview reale negoziata a `1920x1080`
+  - ma `takePhoto()` falliva con `No preview frame available after retries`
+
+  Quindi la foto dipendeva ancora dal raw callback, anche se il path corretto era ormai lo snapshot della `TextureView`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` `attemptTakePhoto()` ora:
+  - prova prima lo snapshot `TextureView` usando `latestPreviewFrameWidth/Height` se presenti
+  - altrimenti usa direttamente `previewWidth/previewHeight` negoziati
+  - solo se lo snapshot della `TextureView` fallisce torna al fallback raw
+- Motivo tecnico:
+  il path `TextureView` non deve dipendere dall'arrivo di `latestPreviewFrame`. La preview alta puo' essere visibile/renderizzata correttamente anche quando il callback raw non consegna ancora frame utili al plugin.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - presenza del log `Using negotiated preview size for TextureView capture 1920x1080` oppure `Using stored preview frame size 1920x1080`
+  - `Preview TextureView bitmap encoding complete`
+  - assenza di `No preview frame available after retries`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
