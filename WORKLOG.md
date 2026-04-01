@@ -1146,6 +1146,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - resti `Preview TextureView bitmap encoding complete`
   - la foto non sia piu' nera.
 
+## 2026-04-01 - Deadlock leggero nei retry di takePhoto su main thread
+
+- Richiesta/problema:
+  durante `takePhoto()` comparivano `Timed out while capturing preview TextureView bitmap`, seguiti da `Skipped 90 frames`, anche se la preview alta era attiva.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il primo tentativo di `attemptTakePhoto()` partiva su worker, ma i retry venivano schedulati con `mainHandler.postDelayed(...)`. Da li' il codice chiamava `capturePreviewTextureAsBase64(...)`, che a sua volta delega la lettura del `TextureView` al main thread e aspetta il risultato con latch. Il retry quindi poteva finire per aspettare il main thread stando gia' sul main thread, causando timeout e jank. Il fix mantiene i ritardi temporizzati, ma fa rieseguire `attemptTakePhoto()` sul `threadPool` Cordova.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - spariscano `Timed out while capturing preview TextureView bitmap`
+  - spariscano o si riducano molto gli `Skipped ... frames`
+  - resti `Preview TextureView bitmap encoding complete`.
+
 ## Open Items
 
 ### Runtime da validare

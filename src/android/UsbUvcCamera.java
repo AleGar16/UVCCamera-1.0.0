@@ -432,7 +432,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 });
             } catch (Exception exception) {
                 Log.w(TAG, "High-res backend failed, falling back to preview frame", exception);
-                mainHandler.post(() -> attemptTakePhoto(photoFile, 1));
+                cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, 1));
             }
         });
     }
@@ -446,7 +446,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 ensureCameraClient();
                 safeRegisterCameraClient();
                 cameraClient.requestPermission(currentDevice);
-                mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+                mainHandler.postDelayed(() -> cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, attempt + 1)), TAKE_PHOTO_RETRY_DELAY_MS);
                 return;
             }
             failPendingPhoto("USB UVC camera not initialized");
@@ -460,7 +460,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             Log.d(TAG, "Camera not ready for photo yet, retry attempt " + attempt);
-            mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            mainHandler.postDelayed(() -> cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, attempt + 1)), TAKE_PHOTO_RETRY_DELAY_MS);
             return;
         }
 
@@ -506,7 +506,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
-            mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            mainHandler.postDelayed(() -> cordova.getThreadPool().execute(() -> attemptTakePhoto(photoFile, attempt + 1)), TAKE_PHOTO_RETRY_DELAY_MS);
             return;
         }
 
