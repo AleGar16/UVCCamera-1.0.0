@@ -38,7 +38,6 @@ import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
 import com.serenegiant.usb.USBMonitor;
-import com.serenegiant.usb.IFrameCallback;
 import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -49,7 +48,6 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.nio.ByteBuffer;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -115,7 +113,6 @@ public class UsbUvcCamera extends CordovaPlugin {
     private Runnable pendingAutoFocusLock;
     private Runnable pendingSurfaceTextureUpdatedAction;
     private Runnable pendingSurfaceTextureUpdatedTimeout;
-    private IFrameCallback underlyingFrameCallback;
     private final Object previewFrameLock = new Object();
     private byte[] latestPreviewFrame;
     private int latestPreviewFrameWidth = -1;
@@ -125,7 +122,6 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedFirstPreviewFrame = false;
     private boolean loggedRejectedDarkFrame = false;
     private boolean loggedBackendApiSnapshot = false;
-    private int underlyingFrameCallbackPixelFormatIndex = 0;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -513,7 +509,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         if (frameCopy == null) {
             if (attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
-                reinstallUnderlyingFrameCallbackForPhotoRetry();
+                Log.d(TAG, "Waiting for AUSBC preview frame before retrying takePhoto");
                 Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
                 mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
                 return;
@@ -571,20 +567,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             });
         });
-    }
-
-    private void reinstallUnderlyingFrameCallbackForPhotoRetry() {
-        try {
-            UVCCamera uvcCamera = getUnderlyingUvcCamera();
-            if (uvcCamera == null) {
-                Log.d(TAG, "Skipping frame callback reinstall because underlying UVCCamera is null");
-                return;
-            }
-            installUnderlyingFrameCallback(uvcCamera);
-            Log.i(TAG, "Reinstalled underlying frame callback while waiting for preview frame during takePhoto");
-        } catch (Exception exception) {
-            Log.w(TAG, "Unable to reinstall underlying frame callback during takePhoto retry", exception);
-        }
     }
 
     private void failPendingPhoto(String message) {
@@ -1951,7 +1933,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                             }
                         }
                     }
-                    installUnderlyingFrameCallback(uvcCamera);
                     int[] negotiated = getNegotiatedPreviewSize();
                     Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
                             + ", frameFormat=" + frameFormat + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
@@ -1985,92 +1966,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
     }
 
-    private void installUnderlyingFrameCallback(UVCCamera uvcCamera) {
-        if (uvcCamera == null) {
-            return;
-        }
-        try {
-            underlyingFrameCallback = new IFrameCallback() {
-                @Override
-                public void onFrame(ByteBuffer buffer) {
-                    if (buffer == null) {
-                        return;
-                    }
-                    ByteBuffer copy = buffer.duplicate();
-                    byte[] bytes = new byte[copy.remaining()];
-                    copy.get(bytes);
-                    int[] negotiated = getNegotiatedPreviewSize();
-                    int frameWidth = negotiated[0] > 0 ? negotiated[0] : previewWidth;
-                    int frameHeight = negotiated[1] > 0 ? negotiated[1] : previewHeight;
-                    String frameFormat = detectUnderlyingFrameFormat(bytes.length, frameWidth, frameHeight);
-                    byte[] normalizedBytes = bytes;
-                    if ("yuyv".equals(frameFormat)) {
-                        normalizedBytes = convertYuyvToNv21(bytes, frameWidth, frameHeight);
-                    } else if ("yuv420sp".equals(frameFormat)) {
-                        normalizedBytes = convertNv12ToNv21(bytes, frameWidth, frameHeight);
-                    }
-                    if (normalizedBytes != null && isLikelyDarkNv21Frame(normalizedBytes, frameWidth, frameHeight)) {
-                        if (!loggedRejectedDarkFrame) {
-                            loggedRejectedDarkFrame = true;
-                            Log.w(TAG, "Rejecting dark preview frame from underlying callback size="
-                                    + frameWidth + "x" + frameHeight + ", bytes=" + bytes.length
-                                    + ", format=" + frameFormat);
-                        }
-                        return;
-                    }
-                    synchronized (previewFrameLock) {
-                        latestPreviewFrame = bytes;
-                        latestPreviewFrameWidth = frameWidth;
-                        latestPreviewFrameHeight = frameHeight;
-                        latestPreviewFrameFromUnderlying = true;
-                        latestPreviewFrameFormat = frameFormat;
-                        if (!loggedFirstPreviewFrame) {
-                            loggedFirstPreviewFrame = true;
-                            Log.i(TAG, "Received first preview frame from underlying callback size="
-                                    + frameWidth + "x" + frameHeight + ", bytes=" + bytes.length
-                                    + ", format=" + frameFormat);
-                        }
-                    }
-                }
-            };
-
-            List<Integer> pixelFormats = buildUnderlyingFrameCallbackPixelFormats();
-            int pixelFormat;
-            if (pixelFormats.isEmpty()) {
-                pixelFormat = getUvcStaticInt(UVCCamera.class, "PIXEL_FORMAT_YUV420SP", 4);
-            } else {
-                int index = Math.floorMod(underlyingFrameCallbackPixelFormatIndex, pixelFormats.size());
-                pixelFormat = pixelFormats.get(index);
-                underlyingFrameCallbackPixelFormatIndex = index + 1;
-            }
-            uvcCamera.setFrameCallback(underlyingFrameCallback, pixelFormat);
-            Log.i(TAG, "Installed underlying UVCCamera frame callback with pixelFormat=" + pixelFormat
-                    + ", supportedCandidates=" + pixelFormats);
-        } catch (Exception exception) {
-            Log.w(TAG, "Unable to install underlying UVCCamera frame callback", exception);
-        }
-    }
-
     private void clearUnderlyingFrameCallback() {
-        try {
-            UVCCamera uvcCamera = getUnderlyingUvcCamera();
-            if (uvcCamera == null) {
-                underlyingFrameCallback = null;
-                return;
-            }
-            uvcCamera.setFrameCallback(null, 0);
-        } catch (Exception ignored) {
-        } finally {
-            underlyingFrameCallback = null;
-            synchronized (previewFrameLock) {
-                latestPreviewFrame = null;
-                latestPreviewFrameWidth = -1;
-                latestPreviewFrameHeight = -1;
-                latestPreviewFrameFromUnderlying = false;
-                latestPreviewFrameFormat = "unknown";
-                loggedFirstPreviewFrame = false;
-                loggedRejectedDarkFrame = false;
-            }
+        synchronized (previewFrameLock) {
+            latestPreviewFrame = null;
+            latestPreviewFrameWidth = -1;
+            latestPreviewFrameHeight = -1;
+            latestPreviewFrameFromUnderlying = false;
+            latestPreviewFrameFormat = "unknown";
+            loggedFirstPreviewFrame = false;
+            loggedRejectedDarkFrame = false;
         }
     }
 

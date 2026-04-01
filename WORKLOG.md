@@ -12,6 +12,20 @@ Formato usato:
 
 ## 2026-04-01
 
+### 0. Stabilizzazione dopo crash nativo del callback raw
+
+- Richiesta/problema:
+  i log finali del totem mostravano un crash nativo `SIGSEGV` dentro `libUVCCamera.so` nel percorso `UVCPreview::do_capture_callback`, quindi il ramo basso livello basato su `UVCCamera.setFrameCallback(...)` non era affidabile su questo device/build.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` e' stato rimosso l'uso operativo del callback raw basso livello:
+  - niente piu' installazione del callback dentro `configureUnderlyingPreviewStream()`
+  - niente piu' reinstallazione del callback durante i retry di `takePhoto()`
+  - `clearUnderlyingFrameCallback()` ora pulisce solo lo stato locale dei preview frame
+- Motivo tecnico:
+  riportiamo il plugin a una baseline stabile lasciando solo i percorsi camera-backed ad alto livello AUSBC, cosi' i prossimi log diranno chiaramente se `addPreviewDataCallBack(...)` consegna frame utili senza innescare crash nativi.
+- Stato:
+  implementato.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:
