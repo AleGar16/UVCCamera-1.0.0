@@ -11,6 +11,7 @@ import com.jiangdg.ausbc.callback.ICaptureCallBack;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBackend {
     private static final String TAG = "AusbcHighResBackend";
@@ -52,6 +53,7 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
         }
 
         Log.i(TAG, "Starting captureImage backend flow for " + photoFile.getAbsolutePath());
+        AtomicReference<String> captureError = new AtomicReference<>();
         currentCamera.captureImage(new ICaptureCallBack() {
             @Override
             public void onBegin() {
@@ -65,12 +67,16 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
 
             @Override
             public void onError(String error) {
+                captureError.set(error);
                 Log.w(TAG, "captureImage onError " + error);
             }
         }, photoFile.getAbsolutePath());
 
         int elapsedMs = 0;
         while (elapsedMs < request.getTimeoutMs()) {
+            if (captureError.get() != null) {
+                throw new IllegalStateException("captureImage failed before file creation: " + captureError.get());
+            }
             if (photoFile.exists() && photoFile.length() >= MIN_BYTES) {
                 int[] dimensions = decodeImageDimensions(photoFile);
                 String base64 = encodeFileAsBase64(photoFile);

@@ -74,7 +74,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int UVC_EXPOSURE_MODE_AUTO = 2;
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
-    private static final int TAKE_PHOTO_TIMEOUT_MS = 6000;
+    private static final int TAKE_PHOTO_TIMEOUT_MS = 12000;
+    private static final int HIGH_RES_CAPTURE_TIMEOUT_MS = 3500;
     private static final int HIGH_RES_CAPTURE_POLL_INTERVAL_MS = 200;
     private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
@@ -433,7 +434,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 100,
                 "uvc:" + currentDevice.getVendorId() + ":" + currentDevice.getProductId(),
                 photoFile.getAbsolutePath(),
-                TAKE_PHOTO_TIMEOUT_MS
+                HIGH_RES_CAPTURE_TIMEOUT_MS
         );
 
         cordova.getThreadPool().execute(() -> {
@@ -452,7 +453,14 @@ public class UsbUvcCamera extends CordovaPlugin {
                 });
             } catch (Exception exception) {
                 Log.w(TAG, "High-res backend failed, falling back to preview frame", exception);
-                mainHandler.post(() -> attemptTakePhoto(photoFile, 1));
+                mainHandler.post(() -> {
+                    if (photoCallback == null) {
+                        Log.w(TAG, "Skipping preview fallback because photo callback has already been resolved");
+                        return;
+                    }
+                    schedulePhotoTimeout();
+                    attemptTakePhoto(photoFile, 1);
+                });
             }
         });
     }
@@ -481,6 +489,20 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             Log.d(TAG, "Camera not ready for photo yet, retry attempt " + attempt);
             mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+            return;
+        }
+
+        int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+        int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
+        int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
+        String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
+        if (textureEncodedImage != null) {
+            Log.i(TAG, "Preview TextureView bitmap encoding complete");
+            clearPhotoTimeout();
+            if (photoCallback != null) {
+                photoCallback.success(textureEncodedImage);
+                photoCallback = null;
+            }
             return;
         }
 
@@ -518,17 +540,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (frameSize == null) {
             Log.e(TAG, "Unable to resolve preview size for frame length " + frameCopy.length);
             failPendingPhoto("Unable to resolve preview size");
-            return;
-        }
-
-        String textureEncodedImage = capturePreviewTextureAsBase64(frameSize.getWidth(), frameSize.getHeight());
-        if (textureEncodedImage != null) {
-            Log.i(TAG, "Preview TextureView bitmap encoding complete");
-            clearPhotoTimeout();
-            if (photoCallback != null) {
-                photoCallback.success(textureEncodedImage);
-                photoCallback = null;
-            }
             return;
         }
 
@@ -578,6 +589,8 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private String capturePreviewTextureAsBase64(int width, int height) {
         if (previewView == null || width <= 0 || height <= 0) {
+            Log.d(TAG, "Skipping TextureView capture because previewView=" + previewView
+                    + ", width=" + width + ", height=" + height);
             return null;
         }
 
@@ -588,9 +601,20 @@ public class UsbUvcCamera extends CordovaPlugin {
             Bitmap bitmap = null;
             try {
                 if (previewView == null || !previewView.isAvailable()) {
+                    Log.d(TAG, "Skipping TextureView capture because previewView is not available");
                     return;
                 }
                 bitmap = previewView.getBitmap(width, height);
+                if (bitmap == null) {
+                    bitmap = previewView.getBitmap();
+                    if (bitmap != null) {
+                        Log.i(TAG, "Falling back to native TextureView bitmap size "
+                                + bitmap.getWidth() + "x" + bitmap.getHeight());
+                    } else {
+                        Log.d(TAG, "TextureView bitmap capture returned null for requested size "
+                                + width + "x" + height);
+                    }
+                }
                 if (bitmap == null) {
                     return;
                 }
