@@ -1073,6 +1073,24 @@ Formato usato:
   - `Preview TextureView bitmap encoding complete`
   - assenza di `No preview frame available after retries`.
 
+### 58. Snapshot TextureView nero per alpha quasi invisibile della preview nascosta
+
+- Richiesta/problema:
+  dopo il ripristino del path `TextureView`, i log mostravano snapshot completati correttamente ma la foto risultava completamente nera.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`, durante `capturePreviewTextureAsBase64(...)`:
+  - se la preview e' nascosta e la `TextureView` ha `alpha < 1`
+  - l'alpha viene portato temporaneamente a `1.0`
+  - viene catturato il bitmap
+  - l'alpha originale viene poi ripristinato immediatamente
+- Motivo tecnico:
+  la preview nascosta del totem viene mantenuta quasi invisibile (`alpha=0.01`) per non disturbare l'interfaccia. Lo snapshot della `TextureView` stava quindi catturando una vista quasi completamente trasparente, producendo una foto nera pur con frame e risoluzione corretti.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando che:
+  - resti `Preview TextureView bitmap encoding complete`
+  - la foto non sia piu' nera
+  - non si notino flash visivi della preview durante lo scatto.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

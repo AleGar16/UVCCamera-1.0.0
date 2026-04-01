@@ -573,9 +573,14 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         mainHandler.post(() -> {
             Bitmap bitmap = null;
+            Float originalAlpha = null;
             try {
                 if (previewView == null || !previewView.isAvailable()) {
                     return;
+                }
+                originalAlpha = previewView.getAlpha();
+                if (!previewVisible && originalAlpha != null && originalAlpha < 1.0f) {
+                    previewView.setAlpha(1.0f);
                 }
                 bitmap = previewView.getBitmap(width, height);
                 if (bitmap == null) {
@@ -596,6 +601,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             } catch (Exception exception) {
                 Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
             } finally {
+                if (previewView != null && originalAlpha != null) {
+                    try {
+                        previewView.setAlpha(originalAlpha);
+                    } catch (Exception ignored) {
+                    }
+                }
                 if (bitmap != null) {
                     bitmap.recycle();
                 }
