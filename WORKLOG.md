@@ -1237,6 +1237,21 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - il `TextureView` nascosto abbia dimensioni compatibili con la preview negoziata
   - almeno uno tra snapshot TextureView e frame cached riesca finalmente a completare `takePhoto()`.
 
+## 2026-04-01 - fallback preview troppo severo nel richiedere un frame fresco dopo timeout high-res
+
+- Richiesta/problema:
+  anche dopo i fix precedenti, il fallback preview continuava a chiudersi con `No preview frame available after retries` senza log diagnostici sufficienti sul motivo reale del `TextureView` snapshot mancante.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  dopo il fallimento del backend high-res, il codice di snapshot continuava di fatto a favorire un frame "fresco" della preview nascosta. In questo scenario pero' la preview puo' essere gia' ferma o non aggiornarsi piu' subito dopo il timeout AUSBC. Ho quindi fatto usare al fallback foto uno snapshot `best effort` del `TextureView` senza richiedere freshness, e aggiunto log espliciti per i casi in cui la view non sia disponibile o diventi indisponibile durante la cattura.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - compaiano i nuovi log `Skipping TextureView capture...` oppure il completamento del bitmap capture
+  - il fallback non resti piu' bloccato in attesa implicita di un frame nuovo
+  - `takePhoto()` riesca a chiudere almeno via snapshot se il backend high-res continua a fallire.
+
 ## Open Items
 
 ### Runtime da validare

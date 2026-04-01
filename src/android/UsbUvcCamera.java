@@ -491,7 +491,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         if (frameSize != null) {
-            String textureEncodedImage = capturePreviewTextureAsBase64(frameSize.getWidth(), frameSize.getHeight());
+            String textureEncodedImage = capturePreviewTextureAsBase64(frameSize.getWidth(), frameSize.getHeight(), false);
             if (textureEncodedImage != null) {
                 Log.i(TAG, "Preview TextureView bitmap encoding complete");
                 clearPhotoTimeout();
@@ -569,8 +569,10 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
     }
 
-    private String capturePreviewTextureAsBase64(int width, int height) {
+    private String capturePreviewTextureAsBase64(int width, int height, boolean requireFreshFrame) {
         if (previewView == null || width <= 0 || height <= 0) {
+            Log.d(TAG, "Skipping TextureView capture because previewView=" + (previewView != null)
+                    + ", requestedWidth=" + width + ", requestedHeight=" + height);
             return null;
         }
 
@@ -581,6 +583,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             long requestTime = SystemClock.uptimeMillis();
             try {
                 if (previewView == null || !previewView.isAvailable()) {
+                    Log.d(TAG, "Skipping TextureView capture because previewView is not available");
                     latch.countDown();
                     return;
                 }
@@ -594,9 +597,10 @@ public class UsbUvcCamera extends CordovaPlugin {
                         Bitmap bitmap = null;
                         try {
                             if (previewView == null || !previewView.isAvailable()) {
+                                Log.d(TAG, "TextureView became unavailable during bitmap capture");
                                 return;
                             }
-                            boolean shouldWaitFreshFrame = !previewVisible && lastPreviewTextureUpdateAt < requestTime;
+                            boolean shouldWaitFreshFrame = requireFreshFrame && !previewVisible && lastPreviewTextureUpdateAt < requestTime;
                             if (shouldWaitFreshFrame && attempts < 8) {
                                 attempts++;
                                 mainHandler.postDelayed(this, 50);
@@ -640,7 +644,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                     }
                 };
 
-                if (!previewVisible && lastPreviewTextureUpdateAt < requestTime) {
+                if (requireFreshFrame && !previewVisible && lastPreviewTextureUpdateAt < requestTime) {
                     mainHandler.postDelayed(captureRunnable[0], 50);
                 } else {
                     captureRunnable[0].run();
