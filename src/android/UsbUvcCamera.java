@@ -509,6 +509,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         if (frameCopy == null) {
             if (attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
+                reinstallUnderlyingFrameCallbackForPhotoRetry();
                 Log.d(TAG, "Preview frame not ready yet, retry attempt " + attempt);
                 mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
                 return;
@@ -569,6 +570,20 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             });
         });
+    }
+
+    private void reinstallUnderlyingFrameCallbackForPhotoRetry() {
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null) {
+                Log.d(TAG, "Skipping frame callback reinstall because underlying UVCCamera is null");
+                return;
+            }
+            installUnderlyingFrameCallback(uvcCamera);
+            Log.i(TAG, "Reinstalled underlying frame callback while waiting for preview frame during takePhoto");
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to reinstall underlying frame callback during takePhoto retry", exception);
+        }
     }
 
     private void failPendingPhoto(String message) {
