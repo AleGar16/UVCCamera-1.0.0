@@ -1066,3 +1066,30 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build del plugin provera' davvero il backend high-res nel flusso `takePhoto()`
 - resta da validare su device se il backend high-res completa lo scatto oppure se emerge il crash nativo separato dentro `updateCameraParams()`
+
+## 2026-04-01 - Timeout e fallback foto riallineati ai log runtime
+
+### Richiesta o problema
+
+- i nuovi log runtime mostravano finalmente l'avvio del backend high-res con `Keeping captureImage backend enabled with negotiated preview stream 1920x1080`
+- subito dopo pero' il backend `captureImage` andava in `Times out`, il timeout totale del plugin scadeva ancora dopo `6000 ms`, e il fallback preview non trovava alcun frame raw disponibile
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `src/android/AusbcHighResPhotoCaptureBackend.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il timeout totale di `takePhoto()` e' stato portato a `12000 ms`, mentre il backend high-res usa ora un timeout dedicato piu' corto (`3500 ms`) per lasciare tempo reale al fallback
+- quando il backend high-res fallisce, il plugin rischedula il timeout generale prima di avviare `attemptTakePhoto()` e non lancia il fallback se il callback foto e' gia' stato chiuso
+- `AusbcHighResPhotoCaptureBackend` ora interrompe subito il polling se `captureImage` richiama `onError`, invece di aspettare l'intero timeout file
+- `attemptTakePhoto()` prova prima a catturare un JPEG dalla `TextureView` della preview e solo dopo, se fallisce, ricade sul frame raw memorizzato
+- `capturePreviewTextureAsBase64()` aggiunge log piu' espliciti e tenta anche `previewView.getBitmap()` senza size fissa se la richiesta dimensionata restituisce `null`
+
+### Stato finale
+
+- il prossimo build dovrebbe evitare il race in cui il timeout totale scade prima del fallback preview
+- se la `TextureView` e' davvero disponibile sul totem, il fallback dovrebbe riuscire anche senza `latestPreviewFrame`
+- se anche cosi' resta il `Times out` del backend high-res, il problema residuo sara' isolato soprattutto dentro `captureImageInternal` della libreria AUSBC
