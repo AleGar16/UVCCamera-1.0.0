@@ -26,6 +26,17 @@ Formato usato:
 - Stato:
   implementato.
 
+### 0b. Allineamento dimensione reale dei frame preview AUSBC
+
+- Richiesta/problema:
+  dopo la stabilizzazione, il callback alto livello `addPreviewDataCallBack(...)` ha iniziato a consegnare frame validi, ma in alcuni log la lunghezza dei byte non coincideva con la dimensione preview negoziata.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il callback preview ora prova prima a verificare se il `byteLength` corrisponde davvero a `previewWidth x previewHeight`; se non coincide, ricava una size compatibile dai byte ricevuti e salva quella dentro `latestPreviewFrameWidth/Height`.
+- Motivo tecnico:
+  questo evita di etichettare i frame con una size sbagliata e rende piu' affidabile sia il filtro dei frame scuri sia la conversione JPEG del percorso `takePhoto()` quando il backend preview usa una risoluzione reale diversa da quella negoziata.
+- Stato:
+  implementato.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:

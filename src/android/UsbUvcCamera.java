@@ -122,6 +122,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedFirstPreviewFrame = false;
     private boolean loggedRejectedDarkFrame = false;
     private boolean loggedBackendApiSnapshot = false;
+    private boolean loggedAdjustedPreviewFrameSize = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -1339,24 +1340,36 @@ public class UsbUvcCamera extends CordovaPlugin {
                     if (data == null || format != DataFormat.NV21) {
                         return;
                     }
-                    if (isLikelyDarkNv21Frame(data, previewWidth, previewHeight)) {
+                    PreviewSize callbackFrameSize = resolvePreviewCallbackFrameSize(data.length);
+                    int callbackFrameWidth = callbackFrameSize != null ? callbackFrameSize.getWidth() : previewWidth;
+                    int callbackFrameHeight = callbackFrameSize != null ? callbackFrameSize.getHeight() : previewHeight;
+                    if (callbackFrameSize != null
+                            && (callbackFrameWidth != previewWidth || callbackFrameHeight != previewHeight)
+                            && !loggedAdjustedPreviewFrameSize) {
+                        loggedAdjustedPreviewFrameSize = true;
+                        Log.i(TAG, "Preview callback frame size adjusted from negotiated "
+                                + previewWidth + "x" + previewHeight + " to "
+                                + callbackFrameWidth + "x" + callbackFrameHeight
+                                + " based on byteLength=" + data.length);
+                    }
+                    if (isLikelyDarkNv21Frame(data, callbackFrameWidth, callbackFrameHeight)) {
                         if (!loggedRejectedDarkFrame) {
                             loggedRejectedDarkFrame = true;
                             Log.w(TAG, "Rejecting dark preview frame from preview callback size="
-                                    + previewWidth + "x" + previewHeight + ", bytes=" + data.length);
+                                    + callbackFrameWidth + "x" + callbackFrameHeight + ", bytes=" + data.length);
                         }
                         return;
                     }
                     synchronized (previewFrameLock) {
                         latestPreviewFrame = data.clone();
-                        latestPreviewFrameWidth = previewWidth;
-                        latestPreviewFrameHeight = previewHeight;
+                        latestPreviewFrameWidth = callbackFrameWidth;
+                        latestPreviewFrameHeight = callbackFrameHeight;
                         latestPreviewFrameFromUnderlying = false;
                         latestPreviewFrameFormat = "nv21";
                         if (!loggedFirstPreviewFrame) {
                             loggedFirstPreviewFrame = true;
                             Log.i(TAG, "Received first preview frame from preview callback size="
-                                    + previewWidth + "x" + previewHeight + ", bytes=" + data.length);
+                                    + callbackFrameWidth + "x" + callbackFrameHeight + ", bytes=" + data.length);
                         }
                     }
                 }
@@ -1474,6 +1487,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrameFormat = "unknown";
             loggedFirstPreviewFrame = false;
             loggedRejectedDarkFrame = false;
+            loggedAdjustedPreviewFrameSize = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1975,7 +1989,22 @@ public class UsbUvcCamera extends CordovaPlugin {
             latestPreviewFrameFormat = "unknown";
             loggedFirstPreviewFrame = false;
             loggedRejectedDarkFrame = false;
+            loggedAdjustedPreviewFrameSize = false;
         }
+    }
+
+    private PreviewSize resolvePreviewCallbackFrameSize(int frameLength) {
+        if (matchesNv21Length(previewWidth, previewHeight, frameLength)) {
+            return new PreviewSize(previewWidth, previewHeight);
+        }
+        return resolvePreviewSizeForFrame(frameLength);
+    }
+
+    private boolean matchesNv21Length(int width, int height, int frameLength) {
+        if (width <= 0 || height <= 0 || frameLength <= 0) {
+            return false;
+        }
+        return width * height * 3 / 2 == frameLength;
     }
 
     private List<Integer> buildUnderlyingFrameCallbackPixelFormats() {
