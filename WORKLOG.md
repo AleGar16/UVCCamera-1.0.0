@@ -37,6 +37,20 @@ Formato usato:
 - Stato:
   implementato.
 
+### 0c. Richiesta still al massimo target disponibile e rimozione log rumoroso
+
+- Richiesta/problema:
+  il comportamento corrente va mantenuto, ma l'acquisizione deve tentare sempre la massima risoluzione/qualita' possibile; inoltre il log di match della size preview veniva stampato ripetutamente.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - il tentativo high-res ora prepara la `HighResPhotoRequest` con la size migliore disponibile tra richiesta iniziale, preview negoziata e `available-preview-sizes`
+  - il timeout del tentativo high-res e' stato alzato a `5000 ms`
+  - sono stati rimossi i `Log.i(...)` ripetitivi dentro `resolvePreviewSizeForFrame(...)`
+- Motivo tecnico:
+  cosi' continuiamo a mantenere il fallback preview che oggi funziona, ma chiediamo sempre il massimo backend possibile prima di ripiegare; allo stesso tempo i log restano leggibili.
+- Stato:
+  implementato.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:

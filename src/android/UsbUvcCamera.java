@@ -73,7 +73,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
     private static final int TAKE_PHOTO_RETRY_DELAY_MS = 350;
     private static final int TAKE_PHOTO_TIMEOUT_MS = 12000;
-    private static final int HIGH_RES_CAPTURE_TIMEOUT_MS = 3500;
+    private static final int HIGH_RES_CAPTURE_TIMEOUT_MS = 5000;
     private static final int HIGH_RES_CAPTURE_POLL_INTERVAL_MS = 200;
     private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
@@ -431,9 +431,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
+        int[] preferredStillCaptureSize = resolvePreferredStillCaptureSize(negotiatedPreviewSize);
+        Log.i(TAG, "Preparing high-res capture request target="
+                + preferredStillCaptureSize[0] + "x" + preferredStillCaptureSize[1]
+                + ", quality=100");
+
         HighResPhotoRequest request = new HighResPhotoRequest(
-                requestedPreviewWidth,
-                requestedPreviewHeight,
+                preferredStillCaptureSize[0],
+                preferredStillCaptureSize[1],
                 100,
                 "uvc:" + currentDevice.getVendorId() + ":" + currentDevice.getProductId(),
                 photoFile.getAbsolutePath(),
@@ -1810,13 +1815,11 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         PreviewSize requestedSize = findMatchingPreviewSize(sizes, previewWidth, previewHeight);
         if (requestedSize != null && requestedSize.getWidth() * requestedSize.getHeight() == expectedPixels) {
-            Log.i(TAG, "resolvePreviewSizeForFrame matched requested preview size " + previewWidth + "x" + previewHeight);
             return requestedSize;
         }
 
         for (PreviewSize size : sizes) {
             if (size.getWidth() * size.getHeight() == expectedPixels) {
-                Log.i(TAG, "resolvePreviewSizeForFrame matched available preview size " + size.getWidth() + "x" + size.getHeight());
                 return size;
             }
         }
@@ -1830,7 +1833,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         };
         for (int[] candidate : commonSizes) {
             if (candidate[0] * candidate[1] == expectedPixels) {
-                Log.i(TAG, "resolvePreviewSizeForFrame matched fallback size " + candidate[0] + "x" + candidate[1]);
                 return new PreviewSize(candidate[0], candidate[1]);
             }
         }
@@ -1849,6 +1851,37 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         }
         return null;
+    }
+
+    private int[] resolvePreferredStillCaptureSize(int[] negotiatedPreviewSize) {
+        int bestWidth = Math.max(requestedPreviewWidth, previewWidth);
+        int bestHeight = Math.max(requestedPreviewHeight, previewHeight);
+        int bestPixels = bestWidth * bestHeight;
+
+        if (negotiatedPreviewSize != null && negotiatedPreviewSize.length >= 2
+                && negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
+            int negotiatedPixels = negotiatedPreviewSize[0] * negotiatedPreviewSize[1];
+            if (negotiatedPixels > bestPixels) {
+                bestWidth = negotiatedPreviewSize[0];
+                bestHeight = negotiatedPreviewSize[1];
+                bestPixels = negotiatedPixels;
+            }
+        }
+
+        List<PreviewSize> sizes = currentPreviewSizes != null ? currentPreviewSizes : new ArrayList<>();
+        for (PreviewSize size : sizes) {
+            if (size == null || size.getWidth() <= 0 || size.getHeight() <= 0) {
+                continue;
+            }
+            int pixels = size.getWidth() * size.getHeight();
+            if (pixels > bestPixels) {
+                bestWidth = size.getWidth();
+                bestHeight = size.getHeight();
+                bestPixels = pixels;
+            }
+        }
+
+        return new int[] { bestWidth, bestHeight };
     }
 
     private PreviewSize resolveTargetPreviewSize(List<PreviewSize> sizes) {
