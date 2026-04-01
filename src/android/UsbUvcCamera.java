@@ -410,13 +410,8 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
         if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
-            int negotiatedPixels = negotiatedPreviewSize[0] * negotiatedPreviewSize[1];
-            if (negotiatedPixels > (640 * 480)) {
-                Log.i(TAG, "Skipping captureImage backend because negotiated preview stream is already high-res: "
-                        + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
-                attemptTakePhoto(photoFile, 1);
-                return;
-            }
+            Log.i(TAG, "Keeping captureImage backend enabled with negotiated preview stream "
+                    + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
         }
 
         if (photoFile.exists()) {
