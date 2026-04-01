@@ -1137,3 +1137,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il prossimo build dovrebbe continuare a permettere il fallback `TextureView`, ma senza generare un JPEG nero a causa dell'alpha quasi nullo della view
+
+## 2026-04-01 - Preferenza al frame raw preview rispetto al bitmap TextureView
+
+### Richiesta o problema
+
+- anche dopo il fix della preview offscreen, il fallback `TextureView` completava ma la foto risultava ancora nera sul totem
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `attemptTakePhoto()` provava sempre prima il bitmap della `TextureView`, anche quando il plugin aveva gia' un frame preview raw disponibile
+- inoltre il callback `addPreviewDataCallBack()` smetteva di aggiornare `latestPreviewFrame` se era presente `underlyingFrameCallback`
+- ora il plugin continua sempre a salvare l'ultimo frame `NV21` della preview e usa quel frame come sorgente primaria dello scatto fallback
+- il bitmap `TextureView` resta disponibile solo come seconda scelta, quando non c'e' ancora nessun frame raw memorizzato
+
+### Stato finale
+
+- il prossimo build dovrebbe evitare le foto nere causate da un bitmap `TextureView` non affidabile, privilegiando il frame preview raw quando disponibile
