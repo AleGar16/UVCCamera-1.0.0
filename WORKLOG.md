@@ -1005,6 +1005,123 @@ Formato usato:
   API nuova disponibile:
   - `navigator.usbUvcCamera.refocus({ focusLockDelayMs: 1800 }, success, error)`
 
+### 55. Pulizia dell'API pubblica del plugin per lasciare solo il flusso utile al totem
+
+- Richiesta/problema:
+  dopo la stabilizzazione di foto, preview e focus, il plugin esponeva ancora molte azioni legacy/diagnostiche o controlli fini non piu' necessari nel flusso reale dell'app.
+- Modifica fatta:
+  e' stata ripulita soprattutto la superficie pubblica del plugin:
+  - `execute()` ora espone solo le azioni principali utili al funzionamento del totem
+  - `www/usbUvcCamera.js` esporta solo le funzioni operative principali
+  - `README.md` e' stata semplificata sul flusso raccomandato
+
+  API lasciate pubbliche:
+  - `open`
+  - `close`
+  - `takePhoto`
+  - `recoverCamera`
+  - `showPreview`
+  - `hidePreview`
+  - `updatePreviewBounds`
+  - `listUsbDevices`
+  - `applyStableCameraProfile`
+  - `refocus`
+- Motivo tecnico:
+  ridurre la superficie pubblica abbassa il rischio di uso incoerente da parte dell'applicazione e rende il plugin piu' chiaro: un solo percorso supportato e stabile, invece di molte API nate durante la fase di debug.
+- Stato:
+  pulizia applicata in codice e documentazione. La logica interna non e' stata rimossa in modo distruttivo, cosi' resta possibile riaprire in futuro alcune funzioni se davvero serviranno.
+
+### 56. Ripristino controllato del bind della SurfaceTexture dopo regressione "no preview frame available"
+
+- Richiesta/problema:
+  dopo la pulizia del lifecycle preview, i log mostravano:
+  - `UVCCamera::window does not exist/already running/could not create thread etc.`
+  - `No preview frame available after retries`
+
+  Quindi la preview bassa negoziava ancora la size, ma non produceva piu' frame utilizzabili per `takePhoto()`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` e' stato reintrodotto `uvcCamera.setPreviewTexture(...)`, ma in forma controllata:
+  - la `SurfaceTexture` viene agganciata una sola volta per sessione preview bassa
+  - viene tracciato lo stato con `underlyingPreviewTextureAttached`
+  - il flag viene resettato alla chiusura camera e alla distruzione della `SurfaceTexture`
+- Motivo tecnico:
+  rimuovere del tutto `setPreviewTexture(...)` eliminava il bind necessario alla preview bassa. Il problema precedente non era "non bisogna mai chiamarlo", ma "non bisogna riattaccare la stessa surface a ogni tentativo". La soluzione corretta e' quindi bind singolo, non bind nullo.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - presenza del log `Attached preview SurfaceTexture to underlying UVCCamera`
+  - assenza di `No preview frame available after retries`
+  - ritorno del path `Preview TextureView bitmap encoding complete`.
+
+### 57. Priorita' corretta del path TextureView in takePhoto()
+
+- Richiesta/problema:
+  dai log successivi risultava una regressione logica nel flusso foto:
+  - preview reale negoziata a `1920x1080`
+  - ma `takePhoto()` falliva con `No preview frame available after retries`
+
+  Quindi la foto dipendeva ancora dal raw callback, anche se il path corretto era ormai lo snapshot della `TextureView`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` `attemptTakePhoto()` ora:
+  - prova prima lo snapshot `TextureView` usando `latestPreviewFrameWidth/Height` se presenti
+  - altrimenti usa direttamente `previewWidth/previewHeight` negoziati
+  - solo se lo snapshot della `TextureView` fallisce torna al fallback raw
+- Motivo tecnico:
+  il path `TextureView` non deve dipendere dall'arrivo di `latestPreviewFrame`. La preview alta puo' essere visibile/renderizzata correttamente anche quando il callback raw non consegna ancora frame utili al plugin.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - presenza del log `Using negotiated preview size for TextureView capture 1920x1080` oppure `Using stored preview frame size 1920x1080`
+  - `Preview TextureView bitmap encoding complete`
+  - assenza di `No preview frame available after retries`.
+
+### 58. Snapshot TextureView nero per alpha quasi invisibile della preview nascosta
+
+- Richiesta/problema:
+  dopo il ripristino del path `TextureView`, i log mostravano snapshot completati correttamente ma la foto risultava completamente nera.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`, durante `capturePreviewTextureAsBase64(...)`:
+  - se la preview e' nascosta e la `TextureView` ha `alpha < 1`
+  - l'alpha viene portato temporaneamente a `1.0`
+  - viene catturato il bitmap
+  - l'alpha originale viene poi ripristinato immediatamente
+- Motivo tecnico:
+  la preview nascosta del totem viene mantenuta quasi invisibile (`alpha=0.01`) per non disturbare l'interfaccia. Lo snapshot della `TextureView` stava quindi catturando una vista quasi completamente trasparente, producendo una foto nera pur con frame e risoluzione corretti.
+- Stato:
+  validato a runtime sul totem.
+
+  Log confermati:
+  - `Using negotiated preview size for TextureView capture 1920x1080`
+  - `Preview TextureView bitmap encoding complete`
+
+  Inoltre non compare piu':
+  - `No preview frame available after retries`
+
+  Quindi il path foto finale ora:
+  - usa la preview reale a `1920x1080`
+  - cattura dallo snapshot `TextureView`
+  - completa senza dipendere dal raw callback
+  - non produce piu' l'immagine nera osservata in precedenza
+
+  Residui non bloccanti ancora visibili nei log:
+  - warning `FrameTracker` / `chromium` legati all'UI WebView
+  - da monitorare eventuali warning `Surface.release` se ricompaiono in sessioni lunghe.
+
+### 59. Attesa del primo frame utile della TextureView prima dello snapshot
+
+- Richiesta/problema:
+  anche dopo il fix dell'alpha, l'utente continuava a segnalare foto nere. Questo indicava che lo snapshot poteva partire troppo presto, prima che la `TextureView` avesse realmente pubblicato un frame valido.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - viene tracciato `lastPreviewTextureUpdateAt` dentro `onSurfaceTextureUpdated(...)`
+  - `capturePreviewTextureAsBase64(...)`, quando la preview e' nascosta, aspetta un aggiornamento reale della `TextureView` successivo alla richiesta di capture prima di chiamare `getBitmap(...)`
+  - sono previsti piccoli retry temporizzati sul main thread per dare il tempo alla pipeline grafica di presentare un frame valido
+- Motivo tecnico:
+  uno snapshot di `TextureView` puo' riuscire tecnicamente anche quando il contenuto e' ancora nero o non aggiornato. Aspettare un `onSurfaceTextureUpdated` successivo alla richiesta di scatto rende il capture piu' coerente con il frame effettivamente mostrato dalla preview.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando che:
+  - resti `Preview TextureView bitmap encoding complete`
+  - la foto non sia piu' nera
+  - non ricompaia il fallback raw.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
@@ -1013,6 +1130,112 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 2. file toccati
 3. spiegazione tecnica breve
 4. stato finale
+
+## 2026-04-01 - TextureView nero con preview nascosta quasi trasparente
+
+- Richiesta/problema:
+  i log confermano `Preview TextureView bitmap encoding complete`, ma la foto risultava ancora completamente nera.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il problema piu' probabile non era piu' il timing del frame, ma il fatto che la preview "nascosta" veniva ancora renderizzata in posizione `0,0` con `alpha=0.01`. Su alcuni device questo lascia viva la `TextureView`, ma porta `getBitmap(...)` a catturare un contenuto quasi nero. Il fix sposta la preview nascosta fuori schermo mantenendola a piena opacita', e rimuove l'override temporaneo di alpha durante il capture.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - resti `Using negotiated preview size for TextureView capture 1920x1080`
+  - resti `Preview TextureView bitmap encoding complete`
+  - la foto non sia piu' nera.
+
+## 2026-04-01 - Deadlock leggero nei retry di takePhoto su main thread
+
+- Richiesta/problema:
+  durante `takePhoto()` comparivano `Timed out while capturing preview TextureView bitmap`, seguiti da `Skipped 90 frames`, anche se la preview alta era attiva.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il primo tentativo di `attemptTakePhoto()` partiva su worker, ma i retry venivano schedulati con `mainHandler.postDelayed(...)`. Da li' il codice chiamava `capturePreviewTextureAsBase64(...)`, che a sua volta delega la lettura del `TextureView` al main thread e aspetta il risultato con latch. Il retry quindi poteva finire per aspettare il main thread stando gia' sul main thread, causando timeout e jank. Il fix mantiene i ritardi temporizzati, ma fa rieseguire `attemptTakePhoto()` sul `threadPool` Cordova.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - spariscano `Timed out while capturing preview TextureView bitmap`
+  - spariscano o si riducano molto gli `Skipped ... frames`
+  - resti `Preview TextureView bitmap encoding complete`.
+
+## 2026-04-01 - Crash nativo AUSBC/UVCCamera in openCameraInternal
+
+- Richiesta/problema:
+  in apertura webcam il processo andava in abort con `attempting to detach while still running code`, con stack dentro `UVCStatusCallback::uvc_status_callback`, `UVCCamera.updateCameraParams` e `MultiCameraClient$Camera.openCameraInternal`.
+- File toccati:
+  - `src/android/build.gradle`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il plugin stava ancora dipendendo dall'artefatto top-level `com.github.jiangdongguo:AndroidUSBCamera:3.2.7`, introdotto come fallback. La documentazione ufficiale AUSBC invece usa il modulo `com.github.jiangdongguo.AndroidUSBCamera:libausbc:<version>`. Ho riallineato la dipendenza al modulo libreria corretto per evitare packaging/layout nativi potenzialmente incoerenti che possono spiegare il crash nel path di apertura camera.
+- Stato finale:
+  workaround applicato lato dipendenze; da validare ricostruendo e verificando che:
+  - l'apertura non abortisca piu' in `UVCStatusCallback::uvc_status_callback`
+  - la preview torni ad aprirsi regolarmente
+  - il flusso `takePhoto()` possa essere ritestato.
+
+## 2026-04-01 - takePhoto bloccato sul fallback TextureView anche con preview 1920x1080
+
+- Richiesta/problema:
+  i log mostrano apertura riuscita e negoziazione `1920x1080`, ma `takePhoto()` saltava il backend high-res e forzava il percorso `TextureView`, terminando con `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  c'era una scorciatoia che disabilitava il backend di capture nativo quando la preview negoziata risultava gia' "alta". In pratica pero' il path `TextureView` restava vulnerabile a preview senza frame freschi o non consumabili, quindi lo scatto falliva anche con stream 1920x1080. Ho rimosso quello skip, cosi' il plugin continua a provare il backend di capture dedicato e usa la preview solo come fallback reale.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - scompaia `Skipping captureImage backend because negotiated preview stream is already high-res`
+  - compaia il tentativo del backend high-res prima del fallback preview
+  - `takePhoto()` torni a restituire una JPEG valida.
+
+## 2026-04-01 - fallback foto interrotto da timeout globale e frame callback troppo esclusiva
+
+- Richiesta/problema:
+  i log mostrano che il backend `captureImage` parte correttamente ma termina con timeout, poi il plugin passa al fallback preview; tuttavia il timeout globale scatta prima che il fallback finisca e il buffer preview resta vuoto fino a `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  c'erano due problemi concatenati. Primo: il timeout totale di scatto era troppo corto rispetto alla somma `captureImage` + fallback preview, quindi `photoCallback` poteva andare in errore prima che il fallback avesse una chance reale. Secondo: il callback NV21 di `MultiCameraClient` veniva ignorato appena era installato `underlyingFrameCallback`, quindi se il frame callback basso livello non produceva dati utili, il fallback restava senza nessun frame cached. Ho aumentato il timeout totale a 12 secondi, riarmo il timeout quando si passa dal backend high-res al fallback preview e lascio sempre aggiornare il buffer preview anche dal callback NV21 di AUSBC.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - `UVC capture timeout after 6000 ms` non compaia piu'
+  - il fallback preview possa partire senza `photoCallback` gia' chiusa
+  - sparisca o si riduca molto `No preview frame available after retries`.
+
+## 2026-04-01 - backend AUSBC bloccato in polling anche dopo onError
+
+- Richiesta/problema:
+  i log mostrano `captureImage onError Times out` dopo circa 3 secondi, ma il backend AUSBC continua comunque a restare dentro il polling del file fino a quasi la fine del timeout totale, impedendo al fallback preview di partire in tempo.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `src/android/AusbcHighResPhotoCaptureBackend.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il timeout del backend high-res e il timeout complessivo dello scatto erano ancora troppo vicini, e in piu' `AusbcHighResPhotoCaptureBackend` ignorava il callback `onError`, continuando ad aspettare un file che non sarebbe mai arrivato. Ho separato i timeout usando un limite dedicato piu' corto per `captureImage` e ho fatto terminare subito il backend appena AUSBC segnala errore, cosi' il fallback puo' partire diversi secondi prima del timeout globale.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - `captureImage onError Times out` sia seguito quasi subito dal fallback preview
+  - non compaia piu' `Skipping preview fallback because photo callback has already been resolved`
+  - il timeout totale lasci abbastanza margine al fallback finale.
+
+## 2026-04-01 - TextureView fallback troppo fragile con preview nascosta e size negoziata alta
+
+- Richiesta/problema:
+  dopo il fix dei timeout, il fallback preview parte in tempo ma continua a non produrre immagine, con ripetuti `Preview frame not ready yet` e chiusura su `No preview frame available after retries`.
+- File toccati:
+  - `src/android/UsbUvcCamera.java`
+  - `WORKLOG.md`
+- Spiegazione tecnica:
+  il fallback `TextureView` stava tentando di leggere direttamente la size negoziata (`1920x1080`), mentre la preview nascosta poteva ancora avere dimensioni layout inferiori legate alla richiesta iniziale. Questo puo' far tornare `getBitmap(width,height)` a `null` senza errori espliciti. Ho quindi allineato la dimensione della preview nascosta anche alla size negoziata corrente e aggiunto un fallback a `previewView.getBitmap()` nativo quando la cattura dimensionata fallisce, con logging esplicito delle dimensioni reali.
+- Stato finale:
+  fix applicato in codice; da validare verificando che:
+  - compaiano eventualmente i nuovi log di fallback bitmap invece del silenzio
+  - il `TextureView` nascosto abbia dimensioni compatibili con la preview negoziata
+  - almeno uno tra snapshot TextureView e frame cached riesca finalmente a completare `takePhoto()`.
 
 ## Open Items
 
