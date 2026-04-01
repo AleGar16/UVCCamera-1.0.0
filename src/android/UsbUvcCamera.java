@@ -1093,7 +1093,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         previewView = new AspectRatioTextureView(cordova.getActivity());
-        previewView.setAlpha(0.01f);
+        previewView.setAlpha(1.0f);
         previewView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
@@ -1146,21 +1146,21 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        int hiddenSurfaceWidth = Math.max(requestedPreviewWidth, STABLE_CAPTURE_WIDTH);
-        int hiddenSurfaceHeight = Math.max(requestedPreviewHeight, STABLE_CAPTURE_HEIGHT);
+        int hiddenSurfaceWidth = Math.max(Math.max(requestedPreviewWidth, previewWidth), STABLE_CAPTURE_WIDTH);
+        int hiddenSurfaceHeight = Math.max(Math.max(requestedPreviewHeight, previewHeight), STABLE_CAPTURE_HEIGHT);
         int width = previewVisible ? previewViewWidth : hiddenSurfaceWidth;
         int height = previewVisible ? previewViewHeight : hiddenSurfaceHeight;
-        int leftMargin = previewVisible ? previewViewX : 0;
+        int leftMargin = previewVisible ? previewViewX : -hiddenSurfaceWidth;
         int topMargin = previewVisible ? previewViewY : 0;
-        float alpha = previewVisible ? 1.0f : 0.01f;
+        float alpha = 1.0f;
 
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
         params.gravity = Gravity.TOP | Gravity.START;
         params.leftMargin = leftMargin;
         params.topMargin = topMargin;
 
-        // Keep the TextureView attached and visible to let Android create/retain
-        // the underlying SurfaceTexture even when the preview is "hidden" for the user.
+        // Keep the TextureView attached and opaque to preserve a usable
+        // SurfaceTexture/bitmap source even when the preview is hidden offscreen.
         previewView.setAlpha(alpha);
         previewView.setVisibility(View.VISIBLE);
         previewView.setLayoutParams(params);
