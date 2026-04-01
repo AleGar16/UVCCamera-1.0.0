@@ -1031,6 +1031,27 @@ Formato usato:
 - Stato:
   pulizia applicata in codice e documentazione. La logica interna non e' stata rimossa in modo distruttivo, cosi' resta possibile riaprire in futuro alcune funzioni se davvero serviranno.
 
+### 56. Ripristino controllato del bind della SurfaceTexture dopo regressione "no preview frame available"
+
+- Richiesta/problema:
+  dopo la pulizia del lifecycle preview, i log mostravano:
+  - `UVCCamera::window does not exist/already running/could not create thread etc.`
+  - `No preview frame available after retries`
+
+  Quindi la preview bassa negoziava ancora la size, ma non produceva piu' frame utilizzabili per `takePhoto()`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` e' stato reintrodotto `uvcCamera.setPreviewTexture(...)`, ma in forma controllata:
+  - la `SurfaceTexture` viene agganciata una sola volta per sessione preview bassa
+  - viene tracciato lo stato con `underlyingPreviewTextureAttached`
+  - il flag viene resettato alla chiusura camera e alla distruzione della `SurfaceTexture`
+- Motivo tecnico:
+  rimuovere del tutto `setPreviewTexture(...)` eliminava il bind necessario alla preview bassa. Il problema precedente non era "non bisogna mai chiamarlo", ma "non bisogna riattaccare la stessa surface a ogni tentativo". La soluzione corretta e' quindi bind singolo, non bind nullo.
+- Stato:
+  fix applicato in codice; da validare a runtime verificando:
+  - presenza del log `Attached preview SurfaceTexture to underlying UVCCamera`
+  - assenza di `No preview frame available after retries`
+  - ritorno del path `Preview TextureView bitmap encoding complete`.
+
 ## Nota operativa
 
 Da ora in poi, a ogni modifica importante, questo file va aggiornato con:

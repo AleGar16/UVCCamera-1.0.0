@@ -102,6 +102,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int preferredProductId = -1;
     private boolean previewSurfaceReady = false;
     private boolean previewVisible = false;
+    private boolean underlyingPreviewTextureAttached = false;
     private UsbDevice pendingOpenDevice;
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
@@ -1052,6 +1053,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
                 previewSurfaceReady = false;
+                underlyingPreviewTextureAttached = false;
                 return true;
             }
 
@@ -1364,6 +1366,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             currentCamera = null;
         }
+        underlyingPreviewTextureAttached = false;
         synchronized (previewFrameLock) {
             latestPreviewFrame = null;
             latestPreviewFrameWidth = -1;
@@ -1830,6 +1833,15 @@ public class UsbUvcCamera extends CordovaPlugin {
                                         + candidateWidth + "x" + candidateHeight);
                             } catch (Exception exception) {
                                 Log.w(TAG, "Unable to set SurfaceTexture default buffer size for negotiation", exception);
+                            }
+                            if (!underlyingPreviewTextureAttached) {
+                                try {
+                                    uvcCamera.setPreviewTexture(surfaceTexture);
+                                    underlyingPreviewTextureAttached = true;
+                                    Log.i(TAG, "Attached preview SurfaceTexture to underlying UVCCamera");
+                                } catch (Exception exception) {
+                                    Log.w(TAG, "Unable to attach preview SurfaceTexture to underlying UVCCamera", exception);
+                                }
                             }
                         }
                     }
