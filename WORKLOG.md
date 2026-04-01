@@ -1247,3 +1247,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build dovrebbe mostrare durante `takePhoto()` nuove righe tipo `Installed underlying UVCCamera frame callback ...` e `Reinstalled underlying frame callback ...`
 - se dopo questo non arriva ancora nessun `Received first preview frame ...`, il canale raw basso potra' considerarsi praticamente non disponibile su questa combinazione device/libreria
+
+## 2026-04-01 - Cattura TextureView agganciata a onSurfaceTextureUpdated
+
+### Richiesta o problema
+
+- anche dopo i tentativi sul canale raw, il fallback finale restava il bitmap della `TextureView` e continuava a produrre un contenuto nero o non affidabile
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il fallback `TextureView` non aspetta piu' due frame stimati con `postOnAnimation`
+- ora arma una cattura one-shot legata al prossimo `onSurfaceTextureUpdated`, cioe' al primo frame realmente aggiornato della preview
+- resta un timeout breve di sicurezza (`700 ms`) che forza comunque la cattura se l'update non arriva
+- questo separa finalmente il problema del timing di cattura dal problema del contenuto renderizzato
+
+### Stato finale
+
+- il prossimo build dira' se il nero dipendeva dal fatto che il bitmap veniva letto prima di un vero update della `SurfaceTexture`
