@@ -492,20 +492,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
-        int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
-        int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
-        String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
-        if (textureEncodedImage != null) {
-            Log.i(TAG, "Preview TextureView bitmap encoding complete");
-            clearPhotoTimeout();
-            if (photoCallback != null) {
-                photoCallback.success(textureEncodedImage);
-                photoCallback = null;
-            }
-            return;
-        }
-
         byte[] frameCopy;
         int frameWidth;
         int frameHeight;
@@ -520,6 +506,19 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         if (frameCopy == null) {
+            int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+            int textureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : previewWidth;
+            int textureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : previewHeight;
+            String textureEncodedImage = capturePreviewTextureAsBase64(textureWidth, textureHeight);
+            if (textureEncodedImage != null) {
+                Log.i(TAG, "Preview TextureView bitmap encoding complete");
+                clearPhotoTimeout();
+                if (photoCallback != null) {
+                    photoCallback.success(textureEncodedImage);
+                    photoCallback = null;
+                }
+                return;
+            }
             if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.w(TAG, "No preview frame available after retries");
                 failPendingPhoto("No preview frame available");
@@ -1309,9 +1308,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         return;
                     }
                     synchronized (previewFrameLock) {
-                        if (underlyingFrameCallback != null) {
-                            return;
-                        }
                         latestPreviewFrame = data.clone();
                         latestPreviewFrameWidth = previewWidth;
                         latestPreviewFrameHeight = previewHeight;
