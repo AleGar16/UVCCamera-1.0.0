@@ -625,9 +625,15 @@ public class UsbUvcCamera extends CordovaPlugin {
                 Log.d(TAG, "Skipping TextureView capture because previewView is not available");
                 return null;
             }
-            bitmap = previewView.getBitmap();
+            boolean canCaptureRequestedSize = previewView.getWidth() >= width && previewView.getHeight() >= height;
+            if (canCaptureRequestedSize) {
+                bitmap = previewView.getBitmap(width, height);
+            }
             if (bitmap == null) {
-                Log.d(TAG, "TextureView bitmap capture returned null for native size "
+                bitmap = previewView.getBitmap();
+            }
+            if (bitmap == null) {
+                Log.d(TAG, "TextureView bitmap capture returned null for view size "
                         + previewView.getWidth() + "x" + previewView.getHeight()
                         + ", requestedTarget=" + width + "x" + height);
             }
@@ -1351,6 +1357,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         UVCCamera uvcCamera = getUnderlyingUvcCamera();
                         if (uvcCamera != null) {
                             configureUnderlyingPreviewStream(uvcCamera);
+                            applyPreviewLayout();
                             applyStoredFocusIfAvailable(uvcCamera);
                             scheduleSmartAutoFocusLock("camera-opened");
                             logBackendApiSnapshotOnce();
