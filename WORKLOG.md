@@ -1408,6 +1408,48 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Rimozione upscale artificiale dalla cattura TextureView
+
+### Richiesta o problema
+
+- la foto restituita dal fallback preview risultava visivamente sgranata e non sembrava una cattura nativa reale a `1920x1080`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il fallback preview usava `TextureView.getBitmap(width, height)` con la size negoziata, che puo' restituire un bitmap scalato alla dimensione richiesta invece del bitmap nativo realmente renderizzato
+- adesso la cattura usa prima il bitmap nativo della `TextureView` (`getBitmap()` senza width/height), cosi' il plugin non gonfia piu' artificialmente un frame di dettaglio inferiore facendolo sembrare `1920x1080`
+
+### Stato finale
+
+- se la preview renderizzata e' davvero full-res, la foto manterra' quella qualita'
+- se invece il frame reale e' piu' piccolo, il plugin smettera' di restituire un'immagine artificialmente upscalata e la qualita' percepita sara' coerente con la sorgente reale
+
+## 2026-04-02 - Pulizia log diagnostici del flusso foto
+
+### Richiesta o problema
+
+- il flusso `takePhoto()` era ormai stabile, ma il logcat restava molto rumoroso per via dei log informativi usati durante il debug di preview, high-res e fallback
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `src/android/AusbcHighResPhotoCaptureBackend.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- rimossi i log `info/debug` piu' verbosi del percorso foto: richieste di scatto, path file, snapshot reflection, dettagli della negoziazione preview, conferme intermedie del backend AUSBC e dell'encoding preview
+- lasciati i `warn/error` che servono davvero a capire fallback o guasti reali, in particolare quando `captureImage()` non raggiunge la risoluzione richiesta o quando l'encoding fallisce
+
+### Stato finale
+
+- il plugin continua a usare il percorso gia' validato (`captureImage()` se sufficiente, altrimenti fallback preview `TextureView`), ma con logcat molto piu' pulito per uso normale
+
 ## 2026-04-01 - Reinstallazione del frame callback durante i retry foto
 
 ### Richiesta o problema

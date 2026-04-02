@@ -52,17 +52,14 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
             photoFile.delete();
         }
 
-        Log.i(TAG, "Starting captureImage backend flow for " + photoFile.getAbsolutePath());
         AtomicReference<String> captureError = new AtomicReference<>();
         currentCamera.captureImage(new ICaptureCallBack() {
             @Override
             public void onBegin() {
-                Log.i(TAG, "captureImage onBegin");
             }
 
             @Override
             public void onComplete(String path) {
-                Log.i(TAG, "captureImage onComplete path=" + path);
             }
 
             @Override
@@ -88,7 +85,6 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
                 if (base64 == null) {
                     throw new IllegalStateException("Failed to encode captured file as base64");
                 }
-                Log.i(TAG, "captureImage file detected size=" + photoFile.length() + ", width=" + dimensions[0] + ", height=" + dimensions[1]);
                 return new HighResPhotoResult(
                         base64,
                         dimensions[0],
