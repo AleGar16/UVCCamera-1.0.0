@@ -37,6 +37,11 @@
         <source-file src="src/android/HighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/PreviewControlBackend.java" target-dir="src/com/cordova/plugin" />
         <framework src="src/android/build.gradle" custom="true" type="gradleReference" />
+        <resource-file src="src/android/libs/libausbc-release.aar" target="libs/libausbc-release.aar" />
+        <resource-file src="src/android/libs/libuvc-release.aar" target="libs/libuvc-release.aar" />
+        <resource-file src="src/android/libs/libuvccommon-release.aar" target="libs/libuvccommon-release.aar" />
+        <resource-file src="src/android/libs/libnative-release.aar" target="libs/libnative-release.aar" />
+        <resource-file src="src/android/libs/libpush-release.aar" target="libs/libpush-release.aar" />
         <resource-file src="src/android/res/xml/device_filter.xml" target="res/xml/device_filter.xml" />
     </platform>
 </plugin>

@@ -53,6 +53,31 @@ Formato usato:
 - Stato:
   implementato, da validare con nuovo log runtime.
 
+### 0p. Recovery `updateResolution(...)` temporaneamente disattivata nel plugin
+
+- Richiesta/problema:
+  i log del 2026-04-02 hanno confermato in modo ripetuto che la recovery AUSBC basata su `currentCamera.updateResolution(...)` riapre il backend correttamente ma ritorna comunque a `640x480`, introducendo solo latenza e jank sul primo scatto della sessione.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` il tentativo di recovery AUSBC e' stato disattivato tramite flag statico, lasciando invariati i guard-rail di lifecycle gia' aggiunti in precedenza.
+- Motivo tecnico:
+  finche' il plugin usa l'artefatto AUSBC corrente, la recovery non migliora la qualita' reale del frame e peggiora solo UX e tempi di scatto; e' meglio passare direttamente al percorso foto stabile gia' validato.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
+### 0q. Build patched locale di AndroidUSBCamera/AUSBC vendorizzata nel plugin
+
+- Richiesta/problema:
+  l'artefatto JitPack `com.github.jiangdongguo:AndroidUSBCamera:3.2.7` continua a scegliere `640x480` nel percorso preview UVC; inoltre il build del sorgente locale richiedeva la rimozione di dipendenze demo non necessarie (`immersionbar`, `webpdecoder`) per poter produrre un AAR patched ripetibile.
+- Modifica fatta:
+  - in `C:/Users/Ansel002/Documents/GitHub/AndroidUSBCamera-src/libausbc/src/main/java/com/jiangdg/ausbc/MultiCameraClient.kt` `getSuitableSize(...)` e' stato corretto per privilegiare match esatto, aspect ratio corretto e size massima utile, evitando che `640x480` vinca in anticipo
+  - in `C:/Users/Ansel002/Documents/GitHub/AndroidUSBCamera-src/libausbc/build.gradle` e `.../GlideLoader.kt` sono state rimosse le dipendenze demo non necessarie al core camera per consentire il build locale patched
+  - sono stati prodotti gli AAR locali `libausbc/libuvc/libuvccommon/libnative/libpush` e copiati in `src/android/libs`
+  - `src/android/build.gradle` ora usa questi AAR locali piu' le dipendenze Maven esplicite, senza piu' dipendere dall'artefatto JitPack `AndroidUSBCamera:3.2.7`
+- Motivo tecnico:
+  in questo modo il plugin puo' portarsi dietro la libreria patched e il build server riceve esattamente il backend AUSBC modificato che vogliamo testare, senza variabili esterne o regressioni dovute al pacchetto pubblicato.
+- Stato:
+  implementato localmente; da validare con il prossimo build Cordova e con nuovo log runtime su device.
+
 ### 0. Stabilizzazione dopo crash nativo del callback raw
 
 - Richiesta/problema:
