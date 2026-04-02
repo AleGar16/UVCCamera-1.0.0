@@ -67,6 +67,31 @@ Formato usato:
 - Stato:
   implementato, da verificare su device con log runtime.
 
+### 0e. Correzione crop del backend still nativo
+
+- Richiesta/problema:
+  il backend `native-still-capture` produceva una JPEG `1920x1080`, ma l'immagine utile risultava piccola e posizionata in alto a sinistra.
+- Modifica fatta:
+  in `src/android/NativeStillCaptureBackend.java` il frame RGBA acquisito offscreen viene ora analizzato e ritagliato automaticamente all'area realmente popolata prima della compressione JPEG; inoltre il risultato espone le dimensioni effettive dell'area utile, non piu' quelle del canvas pieno.
+- Motivo tecnico:
+  se `UVCCamera.startCapture(Surface)` scrive il contenuto reale solo in una porzione del buffer di destinazione, ritagliare i bordi vuoti evita di restituire un'immagine corretta ma incollata nell'angolo alto sinistro.
+- Stato:
+  implementato, da verificare su device con log runtime.
+
+### 0f. Nessun ridimensionamento/crop lato app sul path still nativo
+
+- Richiesta/problema:
+  l'obiettivo non e' "farla vedere bene" ritagliandola nell'app, ma ottenere davvero una foto alla risoluzione richiesta senza resize/crop artificiale lato applicazione.
+- Modifica fatta:
+  in `src/android/NativeStillCaptureBackend.java` e' stato rimosso l'approccio di crop dell'area utile; ora il backend:
+  - verifica se il contenuto catturato riempie davvero quasi tutto il frame richiesto
+  - se il frame non e' full-frame, rilancia un tentativo dopo aver richiesto esplicitamente la preview nativa alta (`MJPEG`, poi fallback `YUYV`)
+  - accetta solo JPEG full-frame reali, senza ritaglio o upscaling lato app
+- Motivo tecnico:
+  cosi' il backend non "maschera" piu' una sorgente piccola dentro un canvas grande; o otteniamo davvero il frame ad alta risoluzione, oppure il tentativo nativo viene considerato non valido.
+- Stato:
+  implementato, da verificare su device con log runtime.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:
