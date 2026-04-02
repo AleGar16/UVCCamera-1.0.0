@@ -1408,6 +1408,29 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Diagnostica one-shot della TextureView di cattura
+
+### Richiesta o problema
+
+- i log recenti confermano il fallback dal backend high-res, ma non mostrano ancora la dimensione reale del bitmap catturato dalla `TextureView`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- e' stato aggiunto un log one-shot `Texture capture metrics ...` che riporta:
+  - dimensione reale della `TextureView`
+  - target richiesto alla cattura
+  - dimensione effettiva del `Bitmap` restituito
+  - se e' stato possibile usare davvero `getBitmap(width, height)` oppure no
+
+### Stato finale
+
+- al prossimo test il log dira' in modo oggettivo se il fallback preview sta producendo un bitmap realmente allineato a `1920x1080` oppure un frame nativo piu' piccolo
+
 ## 2026-04-02 - Riallineamento layout TextureView dopo negoziazione high-res
 
 ### Richiesta o problema
