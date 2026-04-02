@@ -483,6 +483,15 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void attemptTakePhoto(File photoFile, int attempt) {
         refreshCurrentDeviceReference();
+        if (ausbcResolutionRecoveryInProgress) {
+            if (attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.d(TAG, "AUSBC resolution recovery still in progress, delaying takePhoto retry " + attempt);
+                mainHandler.postDelayed(() -> attemptTakePhoto(photoFile, attempt + 1), TAKE_PHOTO_RETRY_DELAY_MS);
+                return;
+            }
+            failPendingPhoto("USB UVC camera still reconfiguring preview resolution");
+            return;
+        }
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
                 Log.d(TAG, "Camera instance missing, trying to reopen device before photo, attempt " + attempt);
@@ -1059,6 +1068,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             @Override
             public void onAttachDev(UsbDevice device) {
                 Log.d(TAG, "USB attach: " + (device != null ? device.getDeviceName() : "null"));
+                if (ausbcResolutionRecoveryInProgress) {
+                    Log.d(TAG, "Ignoring attach callback while AUSBC resolution recovery is in progress");
+                    return;
+                }
                 if (autoReconnectEnabled && currentCamera == null) {
                     refreshCurrentDeviceReference();
                     scheduleReconnect();
@@ -1069,6 +1082,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             public void onDetachDec(UsbDevice device) {
                 Log.d(TAG, "USB detach: " + (device != null ? device.getDeviceName() : "null"));
                 if (device != null && currentDevice != null && device.getDeviceId() == currentDevice.getDeviceId()) {
+                    if (ausbcResolutionRecoveryInProgress) {
+                        Log.w(TAG, "Ignoring detach callback during AUSBC resolution recovery");
+                        return;
+                    }
                     if (openingCamera) {
                         Log.w(TAG, "Ignoring detach callback while camera is opening");
                         return;
@@ -1088,6 +1105,14 @@ public class UsbUvcCamera extends CordovaPlugin {
                     Log.d(TAG, "onConnectDev ignored for non-selected device: " + device.getDeviceName());
                     return;
                 }
+                if (ausbcResolutionRecoveryInProgress) {
+                    Log.i(TAG, "Ignoring connect callback during AUSBC resolution recovery for " + device.getDeviceName());
+                    return;
+                }
+                if (isCurrentCameraOpenOrOpening()) {
+                    Log.i(TAG, "Ignoring duplicate connect callback because camera is already active/opening for " + device.getDeviceName());
+                    return;
+                }
                 Log.i(TAG, "onConnectDev for selected device: " + device.getDeviceName());
                 pendingOpenDevice = device;
                 pendingCtrlBlock = ctrlBlock;
@@ -1098,6 +1123,10 @@ public class UsbUvcCamera extends CordovaPlugin {
             public void onDisConnectDec(UsbDevice device, USBMonitor.UsbControlBlock ctrlBlock) {
                 Log.d(TAG, "USB disconnect callback: " + (device != null ? device.getDeviceName() : "null"));
                 if (device != null && currentDevice != null && device.getDeviceId() == currentDevice.getDeviceId()) {
+                    if (ausbcResolutionRecoveryInProgress) {
+                        Log.w(TAG, "Ignoring disconnect callback during AUSBC resolution recovery");
+                        return;
+                    }
                     if (openingCamera) {
                         Log.w(TAG, "Ignoring disconnect callback while camera is opening");
                         return;
@@ -1458,7 +1487,10 @@ public class UsbUvcCamera extends CordovaPlugin {
                             openCallback = null;
                         }
                     } else if (code == State.CLOSED) {
-                        ausbcResolutionRecoveryInProgress = false;
+                        if (ausbcResolutionRecoveryInProgress) {
+                            Log.i(TAG, "AUSBC camera reported CLOSED while resolution recovery is still in progress");
+                            return;
+                        }
                         openingCamera = false;
                         openRetryCount = 0;
                         Log.d(TAG, "UVC camera closed: " + msg);
@@ -1498,6 +1530,20 @@ public class UsbUvcCamera extends CordovaPlugin {
         clearReconnect();
         cancelSmartAutoFocusLock();
         closeCurrentCamera(true);
+    }
+
+    private boolean isCurrentCameraOpenOrOpening() {
+        if (currentCamera == null) {
+            return false;
+        }
+        if (openingCamera) {
+            return true;
+        }
+        try {
+            return currentCamera.isCameraOpened();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void closeCurrentCamera(boolean resetOpeningFlag) {
@@ -1634,6 +1680,17 @@ public class UsbUvcCamera extends CordovaPlugin {
     private void maybeOpenPendingDevice() {
         if (!previewSurfaceReady || pendingOpenDevice == null || pendingCtrlBlock == null) {
             Log.d(TAG, "maybeOpenPendingDevice skipped: previewReady=" + previewSurfaceReady + ", pendingDevice=" + (pendingOpenDevice != null) + ", pendingCtrlBlock=" + (pendingCtrlBlock != null));
+            return;
+        }
+        if (ausbcResolutionRecoveryInProgress) {
+            Log.i(TAG, "Deferring pending UVC open because AUSBC resolution recovery is still in progress");
+            mainHandler.postDelayed(this::maybeOpenPendingDevice, OPEN_RETRY_DELAY_MS);
+            return;
+        }
+        if (isCurrentCameraOpenOrOpening()) {
+            Log.i(TAG, "Dropping pending UVC open because camera is already active/opening");
+            pendingOpenDevice = null;
+            pendingCtrlBlock = null;
             return;
         }
         UsbDevice device = pendingOpenDevice;
@@ -3143,10 +3200,22 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (!autoReconnectEnabled || reconnectScheduled) {
             return;
         }
+        if (ausbcResolutionRecoveryInProgress) {
+            Log.i(TAG, "Skipping automatic reconnect scheduling during AUSBC resolution recovery");
+            return;
+        }
+        if (openingCamera) {
+            Log.i(TAG, "Skipping automatic reconnect scheduling because camera is already opening");
+            return;
+        }
         reconnectScheduled = true;
         pendingReconnect = () -> {
             reconnectScheduled = false;
             if (!autoReconnectEnabled) {
+                return;
+            }
+            if (ausbcResolutionRecoveryInProgress) {
+                Log.i(TAG, "Automatic reconnect aborted because AUSBC resolution recovery is still in progress");
                 return;
             }
             refreshCurrentDeviceReference();
