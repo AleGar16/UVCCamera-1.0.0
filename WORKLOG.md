@@ -92,6 +92,33 @@ Formato usato:
 - Stato:
   implementato, da verificare su device con log runtime.
 
+### 0g. Stabilizzazione teardown del backend still nativo dopo partial-frame
+
+- Richiesta/problema:
+  i log del 2026-04-02 hanno confermato che il path `native-still-capture` vede contenuto reale `640x480` dentro un canvas `1920x1080`; inoltre, dopo il `PartialFrameException`, il processo poteva ancora andare in `SIGSEGV` mentre il fallback AUSBC era gia' partito.
+- Modifica fatta:
+  in `src/android/NativeStillCaptureBackend.java`:
+  - rimosso il secondo tentativo immediato del backend nativo
+  - il teardown ora aspetta la fine del callback `ImageReader` e prova anche a fare `join()` del `HandlerThread` prima di restituire il controllo al composito
+- Motivo tecnico:
+  il backend nativo deve fallire in modo pulito quando non ottiene un vero full-frame ad alta risoluzione, senza lasciare lavoro nativo/thread attivi che possano collidere con il fallback successivo.
+- Stato:
+  implementato, da verificare su device con log runtime.
+
+### 0h. Ritorno al path preview 1920x1080 gia' validato nel worklog
+
+- Richiesta/problema:
+  il backend `native-still-capture` non eredita il vero full-frame del path preview gia' validato e continua a vedere contenuto utile `640x480` dentro un canvas piu' grande; questo contraddice l'obiettivo di ottenere la foto dalla sorgente realmente a `1920x1080`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - rimosso `NativeStillCaptureBackend` dal composito high-res
+  - `attemptTakePhoto()` torna a provare prima la cattura JPEG dalla `TextureView` della preview alla size preview negoziata/reale
+  - il frame raw preview resta come fallback successivo
+- Motivo tecnico:
+  il worklog aveva gia' validato che il path preview basso/MJPEG arriva davvero a `1920x1080`; quindi ha piu' senso usare direttamente quella superficie reale come sorgente foto, invece di inseguire un backend still nativo che al momento non eredita il full-frame.
+- Stato:
+  implementato, da validare su device con log runtime.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:
