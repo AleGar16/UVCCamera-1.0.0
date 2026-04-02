@@ -414,6 +414,19 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+        if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
+            int negotiatedPixels = negotiatedPreviewSize[0] * negotiatedPreviewSize[1];
+            int requestedPixels = Math.max(1, requestedPreviewWidth) * Math.max(1, requestedPreviewHeight);
+            if (negotiatedPixels >= requestedPixels || negotiatedPixels > (640 * 480)) {
+                Log.i(TAG, "Skipping captureImage backend because negotiated preview stream is already high-res: "
+                        + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
+                mainHandler.post(() -> {
+                    schedulePhotoTimeout();
+                    attemptTakePhoto(photoFile, 1);
+                });
+                return;
+            }
+        }
 
         if (photoFile.exists()) {
             //noinspection ResultOfMethodCallIgnored
