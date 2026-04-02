@@ -986,9 +986,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             int exposure = options != null ? clampPercent(options.optInt("exposure", 50)) : 50;
             boolean autoWhiteBalance = options != null && options.has("autoWhiteBalance") ? options.optBoolean("autoWhiteBalance", true) : true;
             int whiteBalance = options != null ? clampPercent(options.optInt("whiteBalance", 50)) : 50;
-            int brightness = options != null ? clampPercent(options.optInt("brightness", 50)) : 50;
-            int contrast = options != null ? clampPercent(options.optInt("contrast", 50)) : 50;
-            int sharpness = options != null ? clampPercent(options.optInt("sharpness", 50)) : 50;
 
             smartFocusEnabled = smartFocus;
             smartFocusLockDelayMs = focusLockDelayMs;
@@ -1006,9 +1003,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             if (!autoWhiteBalance) {
                 uvcCamera.setWhiteBlance(whiteBalance);
             }
-            uvcCamera.setBrightness(brightness);
-            uvcCamera.setContrast(contrast);
-            uvcCamera.setSharpness(sharpness);
 
             JSONObject result = new JSONObject();
             result.put("smartFocus", smartFocusEnabled);
