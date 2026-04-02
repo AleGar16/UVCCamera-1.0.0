@@ -1876,3 +1876,27 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare una riga tipo `Triggering AUSBC open-time resolution recovery current=... target=...`
+
+## 2026-04-02 - Cooldown breve tra release e nuovo open UVC
+
+### Richiesta o problema
+
+- i log piu' recenti hanno mostrato open intermittenti falliti con sequenza:
+  - `release interface failed`
+  - `UVCCamera ... could not open camera: err=-99`
+- questo suggerisce un reopen troppo ravvicinato del device subito dopo il release della camera precedente
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin ora memorizza il timestamp dell'ultimo `closeCurrentCamera()`
+- se `maybeOpenPendingDevice()` arriva troppo presto dopo il release, rimanda l'`open` di un breve cooldown (`350 ms`) invece di procedere subito
+- l'obiettivo e' lasciare al layer USB/libuvc il tempo minimo per chiudere davvero l'interfaccia prima del prossimo `UVCCamera.open()`
+
+### Stato finale
+
+- implementato; il prossimo test dovra' dire se gli open falliti con `err=-99` si riducono o spariscono
