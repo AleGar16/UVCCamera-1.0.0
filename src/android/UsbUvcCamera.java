@@ -123,6 +123,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedRejectedDarkFrame = false;
     private boolean loggedBackendApiSnapshot = false;
     private boolean loggedAdjustedPreviewFrameSize = false;
+    private boolean loggedTextureCaptureMetrics = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -639,6 +640,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             if (bitmap == null) {
                 return null;
+            }
+            if (!loggedTextureCaptureMetrics) {
+                loggedTextureCaptureMetrics = true;
+                Log.i(TAG, "Texture capture metrics view="
+                        + previewView.getWidth() + "x" + previewView.getHeight()
+                        + ", requestedTarget=" + width + "x" + height
+                        + ", bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight()
+                        + ", usedRequestedSize=" + canCaptureRequestedSize);
             }
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try {
@@ -1462,6 +1471,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             loggedFirstPreviewFrame = false;
             loggedRejectedDarkFrame = false;
             loggedAdjustedPreviewFrameSize = false;
+            loggedTextureCaptureMetrics = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -1988,6 +1998,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             loggedFirstPreviewFrame = false;
             loggedRejectedDarkFrame = false;
             loggedAdjustedPreviewFrameSize = false;
+            loggedTextureCaptureMetrics = false;
         }
     }
 
