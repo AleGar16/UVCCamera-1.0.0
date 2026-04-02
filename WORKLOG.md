@@ -78,6 +78,28 @@ Formato usato:
 - Stato:
   implementato localmente; da validare con il prossimo build Cordova e con nuovo log runtime su device.
 
+### 0r. Compressione JPEG/Base64 della `TextureView` spostata fuori dal main thread
+
+- Richiesta/problema:
+  dopo la build patched di AUSBC il frame preview reale e' salito a `1280x720`, ma i log di scatto mostravano ancora `Skipped XX frames!` subito dopo `Texture capture metrics ...`, segno che la codifica JPEG/Base64 della bitmap catturata da `TextureView` avveniva ancora sul thread UI.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` la cattura `previewView.getBitmap(...)` resta sul main thread, ma la compressione JPEG e la conversione Base64 vengono ora eseguite sul `cordova.getThreadPool()`.
+- Motivo tecnico:
+  `getBitmap(...)` richiede il main thread, mentre compressione e Base64 sono puro lavoro CPU/memoria; spostarle fuori dal main riduce jank e frame skip durante lo scatto senza cambiare il percorso foto.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
+### 0s. Target di open elevato quando AUSBC non espone ancora le preview size iniziali
+
+- Richiesta/problema:
+  dopo la build patched di AUSBC i log hanno mostrato `latestPreviewFrame=1280x720`, ma il plugin continuava a partire con `open requested with width=1280, height=720`; quando `initial-preview-sizes` era vuoto, il `CameraRequest` iniziale restava quindi limitato a `1280x720`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`, se `preferHighestResolution=true` e `currentCamera.getAllPreviewSizes(null)` non restituisce ancora size prima dell'open, il plugin usa una fallback request piu' alta (`1920x1080`, poi altre candidate note) come target iniziale del `CameraRequest`.
+- Motivo tecnico:
+  la libreria patched puo' scegliere una size migliore solo se il plugin non la vincola gia' all'apertura; quando AUSBC non fornisce ancora la lista size in pre-open, usare un target d'open piu' alto evita di fermarsi artificialmente a `1280x720`.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
 ### 0. Stabilizzazione dopo crash nativo del callback raw
 
 - Richiesta/problema:
