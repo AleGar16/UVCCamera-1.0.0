@@ -1408,6 +1408,30 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Riallineamento layout TextureView dopo negoziazione high-res
+
+### Richiesta o problema
+
+- incrociando i log recenti con il worklog storico, la foto da fallback preview risultava ancora sgranata pur con preview negoziata a `1920x1080`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il worklog dei giorni scorsi aveva validato il path corretto: preview bassa negoziata fino a `1920x1080`, `TextureView` usata come sorgente foto e JPEG coerente con la size alta
+- nel codice corrente, dopo `configureUnderlyingPreviewStream(...)` venivano aggiornati `previewWidth/previewHeight`, ma il layout hidden della `TextureView` non veniva riallineato subito a quella nuova size
+- questo poteva lasciare la view fisicamente piu' piccola (per esempio `1280x720`) e poi farle chiedere `getBitmap(1920,1080)`, con effetto di upscale e perdita apparente di dettaglio
+- ora, appena la preview low-level entra in `OPENED` e finisce la riconfigurazione high-res, il plugin richiama `applyPreviewLayout()`
+- inoltre la cattura dimensionata `getBitmap(width, height)` viene fatta solo se la `TextureView` e' davvero grande almeno quanto il target richiesto; altrimenti il plugin usa il bitmap nativo della view per evitare upscale artificiale
+
+### Stato finale
+
+- il fallback preview torna coerente con il path storico validato nel worklog: size richiesta alta solo quando la `TextureView` e' realmente allineata alla preview negoziata
+- se il totem riesce davvero a mantenere la view a `1920x1080`, la foto puo' tornare piena e nitida; se la view resta piu' piccola, il plugin evita almeno di mascherarlo con uno scaling artificiale
+
 ## 2026-04-02 - Protezione crash nativo su query gain
 
 ### Richiesta o problema
