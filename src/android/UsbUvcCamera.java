@@ -81,6 +81,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int OPEN_RETRY_DELAY_MS = 600;
     private static final int OPEN_AFTER_RELEASE_COOLDOWN_MS = 350;
     private static final int MAX_OPEN_RETRIES = 2;
+    private static final boolean ENABLE_AUSBC_RESOLUTION_RECOVERY = false;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private HighResPhotoCaptureBackend highResPhotoCaptureBackend;
@@ -2107,6 +2108,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void maybeTriggerAusbcResolutionRecoveryAfterOpen(MultiCameraClient.Camera camera) {
+        if (!ENABLE_AUSBC_RESOLUTION_RECOVERY) {
+            return;
+        }
         if (camera == null || ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress
                 || ausbcResolutionRecoveryUnsupported) {
             return;
@@ -2160,6 +2164,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean shouldAttemptAusbcResolutionRecovery(int[] negotiatedPreviewSize, PreviewSize frameSize, boolean frameFromUnderlying) {
+        if (!ENABLE_AUSBC_RESOLUTION_RECOVERY) {
+            return false;
+        }
         if (ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress || ausbcResolutionRecoveryUnsupported) {
             return false;
         }
@@ -2180,6 +2187,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean triggerAusbcResolutionRecovery(int targetWidth, int targetHeight) {
+        if (!ENABLE_AUSBC_RESOLUTION_RECOVERY) {
+            return false;
+        }
         if (currentCamera == null || targetWidth <= 0 || targetHeight <= 0) {
             return false;
         }
