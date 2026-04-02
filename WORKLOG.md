@@ -1437,6 +1437,32 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il plugin prova finalmente un frame UVC reale oltre il limite `640x480` del wrapper alto livello, ma senza riattivare il vecchio callback continuo che in passato causava crash nativi
 
+## 2026-04-02 - Disattivazione del tentativo low-level one-shot dopo crash nativo
+
+### Richiesta o problema
+
+- il test runtime del tentativo one-shot low-level ha confermato un esito netto:
+  - il callback veniva armato correttamente (`PIXEL_FORMAT_NV21`)
+  - ma il processo andava di nuovo in `SIGSEGV` dentro `UVCPreview::do_capture_callback`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- anche in modalita' one-shot e con timeout breve, `UVCCamera.setFrameCallback(...)` riattiva sul totem lo stesso ramo nativo instabile gia' visto nei crash precedenti
+- questo significa che il path low-level callback non e' affidabile su questa combinazione device/build, neppure se usato solo durante `takePhoto()`
+- il tentativo e' stato quindi rimosso del tutto e il plugin torna al path stabile:
+  - `captureImage()` best-effort
+  - fallback preview `TextureView`
+  - raw preview alto livello solo come ultima risorsa
+
+### Stato finale
+
+- il ramo low-level callback viene considerato chiuso per questo totem, perche' riproduce crash nativi strutturali e non semplici errori gestibili lato Java
+
 ## 2026-04-02 - Protezione crash nativo su applyStableCameraProfile
 
 ### Richiesta o problema
