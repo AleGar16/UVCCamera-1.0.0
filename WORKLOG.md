@@ -1408,6 +1408,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Protezione crash nativo su applyStableCameraProfile
+
+### Richiesta o problema
+
+- il totem andava in crash nativo durante `applyStableCameraProfile()`, con stack che passava da `uvc_set_contrast` e `UVCCamera::setContrast`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il profilo stabile applicava automaticamente anche i controlli di processing immagine:
+  - `brightness`
+  - `contrast`
+  - `sharpness`
+- su questo device almeno `setContrast` entra in un ramo nativo instabile di `libUVCCamera.so` e puo' abortire il processo
+- ora `applyStableCameraProfile()` continua a gestire focus, esposizione e white balance, ma non tocca piu' automaticamente brightness/contrast/sharpness
+
+### Stato finale
+
+- il profilo camera all'avvio dovrebbe tornare stabile sul totem
+- i controlli di processing restano separati dal profilo stabile, per evitare nuovi abort nativi durante l'inizializzazione
+
 ## 2026-04-02 - Apertura preview riallineata alla massima risoluzione reale
 
 ### Richiesta o problema
