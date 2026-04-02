@@ -37,6 +37,7 @@ import com.jiangdg.ausbc.camera.bean.CameraRequest;
 import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
+import com.serenegiant.usb.IFrameCallback;
 import com.serenegiant.usb.USBMonitor;
 import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
@@ -49,6 +50,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,6 +59,7 @@ import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class UsbUvcCamera extends CordovaPlugin {
@@ -77,6 +80,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int RECONNECT_DELAY_MS = 1200;
     private static final int OPEN_RETRY_DELAY_MS = 600;
     private static final int MAX_OPEN_RETRIES = 2;
+    private static final int UNDERLYING_FRAME_CAPTURE_TIMEOUT_MS = 300;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
     private HighResPhotoCaptureBackend highResPhotoCaptureBackend;
@@ -129,6 +133,26 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private interface TextureCaptureCallback {
         void onCaptured(String encodedImage);
+    }
+
+    private interface UnderlyingFrameCaptureCallback {
+        void onCaptured(UnderlyingFrameCaptureResult result);
+    }
+
+    private static final class UnderlyingFrameCaptureResult {
+        final byte[] data;
+        final int width;
+        final int height;
+        final String format;
+        final int pixelFormat;
+
+        UnderlyingFrameCaptureResult(byte[] data, int width, int height, String format, int pixelFormat) {
+            this.data = data;
+            this.width = width;
+            this.height = height;
+            this.format = format;
+            this.pixelFormat = pixelFormat;
+        }
     }
 
     @Override
@@ -539,6 +563,36 @@ public class UsbUvcCamera extends CordovaPlugin {
                     + ", latestPreviewFromUnderlying=" + frameFromUnderlying
                     + ", textureView=" + (previewView != null ? (previewView.getWidth() + "x" + previewView.getHeight()) : "null"));
         }
+        if (!frameFromUnderlying
+                && negotiatedPreviewSize[0] > frameSize.getWidth()
+                && negotiatedPreviewSize[1] > frameSize.getHeight()) {
+            captureUnderlyingFrameOnce(negotiatedPreviewSize[0], negotiatedPreviewSize[1], underlyingResult -> {
+                if (underlyingResult != null) {
+                    encodeRawPreviewFrameFallback(
+                            underlyingResult.data,
+                            new PreviewSize(underlyingResult.width, underlyingResult.height),
+                            true,
+                            underlyingResult.format
+                    );
+                    return;
+                }
+                capturePreviewTextureOrRawFallback(textureCaptureWidth, textureCaptureHeight, frameCopy, frameSize, frameFromUnderlying, frameFormat);
+            });
+            return;
+        }
+        capturePreviewTextureOrRawFallback(textureCaptureWidth, textureCaptureHeight, frameCopy, frameSize, frameFromUnderlying, frameFormat);
+    }
+
+    private void failPendingPhoto(String message) {
+        clearPhotoTimeout();
+        if (photoCallback != null) {
+            photoCallback.error(message);
+            photoCallback = null;
+        }
+    }
+
+    private void capturePreviewTextureOrRawFallback(int textureCaptureWidth, int textureCaptureHeight,
+            byte[] frameCopy, PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
         capturePreviewTextureAsBase64Async(textureCaptureWidth, textureCaptureHeight, textureEncodedImage -> {
             if (textureEncodedImage != null) {
                 clearPhotoTimeout();
@@ -550,14 +604,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             encodeRawPreviewFrameFallback(frameCopy, frameSize, frameFromUnderlying, frameFormat);
         });
-    }
-
-    private void failPendingPhoto(String message) {
-        clearPhotoTimeout();
-        if (photoCallback != null) {
-            photoCallback.error(message);
-            photoCallback = null;
-        }
     }
 
     private void encodeRawPreviewFrameFallback(byte[] frameCopy, PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
@@ -590,6 +636,75 @@ public class UsbUvcCamera extends CordovaPlugin {
                 }
             });
         });
+    }
+
+    private void captureUnderlyingFrameOnce(int width, int height, UnderlyingFrameCaptureCallback callback) {
+        UVCCamera uvcCamera = getUnderlyingUvcCamera();
+        if (callback == null || uvcCamera == null || width <= 0 || height <= 0) {
+            if (callback != null) {
+                callback.onCaptured(null);
+            }
+            return;
+        }
+
+        List<Integer> pixelFormats = buildUnderlyingFrameCallbackPixelFormats();
+        if (pixelFormats.isEmpty()) {
+            callback.onCaptured(null);
+            return;
+        }
+
+        int selectedPixelFormat = pixelFormats.get(0);
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        IFrameCallback frameCallback = frame -> {
+            if (frame == null || !completed.compareAndSet(false, true)) {
+                return;
+            }
+            ByteBuffer buffer = frame.asReadOnlyBuffer();
+            buffer.rewind();
+            byte[] bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+            String detectedFormat = detectUnderlyingFrameFormat(bytes.length, width, height);
+            UnderlyingFrameCaptureResult result = new UnderlyingFrameCaptureResult(
+                    bytes,
+                    width,
+                    height,
+                    detectedFormat,
+                    selectedPixelFormat
+            );
+            mainHandler.post(() -> {
+                clearOneShotUnderlyingFrameCallback(uvcCamera);
+                Log.i(TAG, "Underlying one-shot frame captured size="
+                        + width + "x" + height + ", bytes=" + bytes.length
+                        + ", format=" + detectedFormat + ", pixelFormat=" + selectedPixelFormat);
+                callback.onCaptured(result);
+            });
+        };
+
+        try {
+            uvcCamera.setFrameCallback(frameCallback, selectedPixelFormat);
+            mainHandler.postDelayed(() -> {
+                if (!completed.compareAndSet(false, true)) {
+                    return;
+                }
+                clearOneShotUnderlyingFrameCallback(uvcCamera);
+                callback.onCaptured(null);
+            }, UNDERLYING_FRAME_CAPTURE_TIMEOUT_MS);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to arm one-shot underlying frame callback", exception);
+            clearOneShotUnderlyingFrameCallback(uvcCamera);
+            callback.onCaptured(null);
+        }
+    }
+
+    private void clearOneShotUnderlyingFrameCallback(UVCCamera uvcCamera) {
+        if (uvcCamera == null) {
+            return;
+        }
+        try {
+            uvcCamera.setFrameCallback(null, 0);
+        } catch (Exception ignored) {
+        }
     }
 
     private void capturePreviewTextureAsBase64Async(int width, int height, TextureCaptureCallback callback) {

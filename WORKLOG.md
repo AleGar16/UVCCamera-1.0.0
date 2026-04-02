@@ -1408,6 +1408,35 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Tentativo low-level one-shot del frame UVC durante lo scatto
+
+### Richiesta o problema
+
+- i log hanno confermato che:
+  - `captureImage()` AUSBC resta a `640x480`
+  - anche `latestPreviewFrame` alto livello resta `640x480`
+  - mentre preview negoziata e `TextureView` risultano `1920x1080`
+- quindi il punto aperto non era piu' il canvas finale, ma la sorgente frame realmente esposta dal wrapper AUSBC
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- e' stato introdotto un tentativo low-level molto difensivo e limitato al solo momento dello scatto:
+  - viene armato un `IFrameCallback` su `UVCCamera` solo one-shot
+  - parte solo se la preview negoziata e' piu' alta del frame AUSBC disponibile
+  - usa il primo pixel format low-level disponibile
+  - si spegne subito al primo frame o dopo un timeout molto breve (`300 ms`)
+- se il frame one-shot arriva, il plugin lo codifica come sorgente foto
+- se non arriva, il flusso torna al path corrente (`TextureView` e poi raw fallback)
+
+### Stato finale
+
+- il plugin prova finalmente un frame UVC reale oltre il limite `640x480` del wrapper alto livello, ma senza riattivare il vecchio callback continuo che in passato causava crash nativi
+
 ## 2026-04-02 - Protezione crash nativo su applyStableCameraProfile
 
 ### Richiesta o problema
