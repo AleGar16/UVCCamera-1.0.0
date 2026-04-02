@@ -1820,3 +1820,34 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare se la preview raw di AUSBC smette finalmente di partire da `640x480`
+
+## 2026-04-02 - Recovery one-shot di AUSBC via reorder supported sizes + updateResolution
+
+### Richiesta o problema
+
+- il test successivo ha mostrato che il semplice riordino della lista preview lato plugin non basta:
+  - `negotiatedPreview=1920x1080`
+  - `latestPreviewFrame=640x480`
+- l'analisi del codice `AndroidUSBCamera` ha evidenziato che `getSuitableSize(...)` ricostruisce ogni volta la lista partendo da `UVCCamera.mSupportedSize`, quindi serviva agire piu' a monte
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- durante `takePhoto()`, se il plugin rileva:
+  - preview negoziata piu' grande del frame raw AUSBC
+  - frame raw ancora fermo a `640x480`
+  - nessun frame proveniente dal callback low-level
+- allora esegue una recovery one-shot:
+  - legge il JSON `UVCCamera.getSupportedSize()`
+  - riordina le size supportate mettendo in testa la target high-res e penalizzando `640x480`
+  - riscrive il campo interno `mSupportedSize`
+  - chiama `currentCamera.updateResolution(targetWidth, targetHeight)`
+- la recovery viene tentata una sola volta per sessione camera, per evitare loop o reopen infiniti
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare se dopo `Triggering AUSBC updateResolution recovery ...` il frame preview raw smette finalmente di restare a `640x480`
