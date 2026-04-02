@@ -130,6 +130,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean ausbcResolutionRecoveryInProgress = false;
     private boolean ausbcResolutionRecoveryUnsupported = false;
     private boolean loggedMissingAusbcNv21Queue = false;
+    private boolean loggedMissingCameraRequestPreviewFormatClass = false;
+    private boolean loggedMissingCameraRequestSetPreviewFormat = false;
+    private final Set<String> loggedMissingCameraRequestBooleanMethods = new HashSet<>();
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -2713,10 +2716,16 @@ public class UsbUvcCamera extends CordovaPlugin {
             Log.i(TAG, "Applied CameraRequest preview format constant=" + ((Enum<?>) selectedValue).name());
             return true;
         } catch (ClassNotFoundException exception) {
-            Log.w(TAG, "CameraRequest.PreviewFormat class not available", exception);
+            if (!loggedMissingCameraRequestPreviewFormatClass) {
+                loggedMissingCameraRequestPreviewFormatClass = true;
+                Log.i(TAG, "CameraRequest.PreviewFormat class not available in current AUSBC artifact; preview format override disabled");
+            }
             return false;
         } catch (NoSuchMethodException exception) {
-            Log.w(TAG, "CameraRequest.Builder.setPreviewFormat not available", exception);
+            if (!loggedMissingCameraRequestSetPreviewFormat) {
+                loggedMissingCameraRequestSetPreviewFormat = true;
+                Log.i(TAG, "CameraRequest.Builder.setPreviewFormat not available in current AUSBC artifact");
+            }
             return false;
         } catch (Exception exception) {
             Log.w(TAG, "Failed applying CameraRequest preview format", exception);
@@ -2730,7 +2739,9 @@ public class UsbUvcCamera extends CordovaPlugin {
             method.invoke(requestBuilder, value);
             return true;
         } catch (NoSuchMethodException exception) {
-            Log.w(TAG, "CameraRequest.Builder." + methodName + " not available", exception);
+            if (loggedMissingCameraRequestBooleanMethods.add(methodName)) {
+                Log.i(TAG, "CameraRequest.Builder." + methodName + " not available in current AUSBC artifact");
+            }
             return false;
         } catch (Exception exception) {
             Log.w(TAG, "Failed invoking CameraRequest.Builder." + methodName, exception);
