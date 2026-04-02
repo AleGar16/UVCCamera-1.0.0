@@ -666,7 +666,19 @@ public class UsbUvcCamera extends CordovaPlugin {
                     return;
                 }
                 completed.set(true);
-                callback.onCaptured(capturePreviewTextureAsBase64OnMainThread(width, height));
+                Bitmap bitmap = capturePreviewTextureBitmapOnMainThread(width, height);
+                if (bitmap == null) {
+                    callback.onCaptured(null);
+                    return;
+                }
+                cordova.getThreadPool().execute(() -> {
+                    try {
+                        String encodedImage = encodeBitmapAsBase64(bitmap);
+                        mainHandler.post(() -> callback.onCaptured(encodedImage));
+                    } finally {
+                        bitmap.recycle();
+                    }
+                });
             };
             pendingSurfaceTextureUpdatedAction = performCapture;
             pendingSurfaceTextureUpdatedTimeout = () -> {
@@ -692,14 +704,14 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
     }
 
-    private String capturePreviewTextureAsBase64OnMainThread(int width, int height) {
-        Bitmap bitmap = null;
+    private Bitmap capturePreviewTextureBitmapOnMainThread(int width, int height) {
         try {
             if (previewView == null || !previewView.isAvailable()) {
                 Log.d(TAG, "Skipping TextureView capture because previewView is not available");
                 return null;
             }
             boolean canCaptureRequestedSize = previewView.getWidth() >= width && previewView.getHeight() >= height;
+            Bitmap bitmap = null;
             if (canCaptureRequestedSize) {
                 bitmap = previewView.getBitmap(width, height);
             }
@@ -722,25 +734,31 @@ public class UsbUvcCamera extends CordovaPlugin {
                         + ", bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight()
                         + ", usedRequestedSize=" + canCaptureRequestedSize);
             }
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-                if (compressed) {
-                    return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
-                }
-                return null;
-            } finally {
-                try {
-                    outputStream.close();
-                } catch (Exception ignored) {
-                }
-            }
+            return bitmap;
         } catch (Exception exception) {
             Log.w(TAG, "Unable to capture preview TextureView bitmap", exception);
             return null;
+        }
+    }
+
+    private String encodeBitmapAsBase64(Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            boolean compressed = bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+            if (!compressed) {
+                return null;
+            }
+            return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to encode TextureView bitmap as base64", exception);
+            return null;
         } finally {
-            if (bitmap != null) {
-                bitmap.recycle();
+            try {
+                outputStream.close();
+            } catch (Exception ignored) {
             }
         }
     }
@@ -1407,6 +1425,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                 previewWidth = targetPreviewSize.getWidth();
                 previewHeight = targetPreviewSize.getHeight();
                 Log.i(TAG, "Using target preview size " + previewWidth + "x" + previewHeight + " for open");
+            } else {
+                int[] openRequestSize = resolveOpenRequestPreviewSize();
+                previewWidth = openRequestSize[0];
+                previewHeight = openRequestSize[1];
+                Log.i(TAG, "Using fallback preview request " + previewWidth + "x" + previewHeight
+                        + " for open because initial preview sizes are unavailable");
             }
             updatePreviewSurfaceDefaultBufferSize();
             currentCamera.addPreviewDataCallBack(new IPreviewDataCallBack() {
@@ -2057,6 +2081,28 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         return highestSize;
+    }
+
+    private int[] resolveOpenRequestPreviewSize() {
+        if (!preferHighestResolution) {
+            return new int[] { previewWidth, previewHeight };
+        }
+        int[][] preferredCandidates = new int[][] {
+                {1920, 1080},
+                {1600, 896},
+                {1280, 720},
+                {1024, 576},
+                {960, 720},
+                {864, 480},
+                {800, 600},
+                {640, 480}
+        };
+        for (int[] candidate : preferredCandidates) {
+            if (candidate[0] >= requestedPreviewWidth && candidate[1] >= requestedPreviewHeight) {
+                return new int[] { candidate[0], candidate[1] };
+            }
+        }
+        return new int[] { previewWidth, previewHeight };
     }
 
     private void logPreviewSizes(String label, List<PreviewSize> sizes) {
