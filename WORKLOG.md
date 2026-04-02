@@ -132,6 +132,17 @@ Formato usato:
 - Stato:
   implementato; al prossimo test serve una reinstallazione pulita dell'APK/plugin.
 
+### 0l. `captureImage()` AUSBC sotto soglia non viene piu' trattato come successo finale
+
+- Richiesta/problema:
+  nei log del 2026-04-02 `captureImage()` chiudeva rapidamente con un file `640x480` e il plugin lo accettava come `High-res capture backend success`, impedendo di entrare nel path `TextureView` gia' riallineato alla preview `1920x1080`.
+- Modifica fatta:
+  in `src/android/AusbcHighResPhotoCaptureBackend.java` il backend ora verifica la risoluzione reale del file prodotto; se `width/height` sono inferiori alla `HighResPhotoRequest`, il risultato viene rifiutato con errore esplicito invece di essere restituito come successo.
+- Motivo tecnico:
+  `ausbc-capture-image` resta un tentativo utile, ma non deve piu' bloccare il fallback ad alta risoluzione quando produce solo `640x480`.
+- Stato:
+  implementato; al prossimo test il fallback `takePhoto()` dovrebbe poter proseguire verso `preview-texture-primary`.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:

@@ -79,6 +79,11 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
             }
             if (photoFile.exists() && photoFile.length() >= MIN_BYTES) {
                 int[] dimensions = decodeImageDimensions(photoFile);
+                if (!meetsRequestedResolution(dimensions, request)) {
+                    throw new IllegalStateException("captureImage produced insufficient resolution: "
+                            + dimensions[0] + "x" + dimensions[1]
+                            + ", requested at least " + request.getRequestedWidth() + "x" + request.getRequestedHeight());
+                }
                 String base64 = encodeFileAsBase64(photoFile);
                 if (base64 == null) {
                     throw new IllegalStateException("Failed to encode captured file as base64");
@@ -142,5 +147,13 @@ public class AusbcHighResPhotoCaptureBackend implements HighResPhotoCaptureBacke
             Log.w(TAG, "decodeImageDimensions failed", exception);
             return new int[] { -1, -1 };
         }
+    }
+
+    private boolean meetsRequestedResolution(int[] dimensions, HighResPhotoRequest request) {
+        if (dimensions == null || dimensions.length < 2 || request == null) {
+            return false;
+        }
+        return dimensions[0] >= request.getRequestedWidth()
+                && dimensions[1] >= request.getRequestedHeight();
     }
 }
