@@ -32,7 +32,6 @@
         <source-file src="src/android/AusbcCameraHandleProvider.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/AusbcHighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/CompositeHighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
-        <source-file src="src/android/NativeStillCaptureBackend.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/HighResPhotoRequest.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/HighResPhotoResult.java" target-dir="src/com/cordova/plugin" />
         <source-file src="src/android/HighResPhotoCaptureBackend.java" target-dir="src/com/cordova/plugin" />
