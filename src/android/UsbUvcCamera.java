@@ -57,8 +57,6 @@ import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class UsbUvcCamera extends CordovaPlugin {
@@ -127,6 +125,10 @@ public class UsbUvcCamera extends CordovaPlugin {
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
+
+    private interface TextureCaptureCallback {
+        void onCaptured(String encodedImage);
+    }
 
     @Override
     protected void pluginInitialize() {
@@ -527,16 +529,28 @@ public class UsbUvcCamera extends CordovaPlugin {
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
         int textureCaptureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : frameSize.getWidth();
         int textureCaptureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : frameSize.getHeight();
-        String textureEncodedImage = capturePreviewTextureAsBase64(textureCaptureWidth, textureCaptureHeight);
-        if (textureEncodedImage != null) {
-            clearPhotoTimeout();
-            if (photoCallback != null) {
-                photoCallback.success(textureEncodedImage);
-                photoCallback = null;
+        capturePreviewTextureAsBase64Async(textureCaptureWidth, textureCaptureHeight, textureEncodedImage -> {
+            if (textureEncodedImage != null) {
+                clearPhotoTimeout();
+                if (photoCallback != null) {
+                    photoCallback.success(textureEncodedImage);
+                    photoCallback = null;
+                }
+                return;
             }
-            return;
-        }
+            encodeRawPreviewFrameFallback(frameCopy, frameSize, frameFromUnderlying, frameFormat);
+        });
+    }
 
+    private void failPendingPhoto(String message) {
+        clearPhotoTimeout();
+        if (photoCallback != null) {
+            photoCallback.error(message);
+            photoCallback = null;
+        }
+    }
+
+    private void encodeRawPreviewFrameFallback(byte[] frameCopy, PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
         final byte[] encodedFrameData;
         if (frameFromUnderlying) {
             if ("yuyv".equals(frameFormat)) {
@@ -568,47 +582,43 @@ public class UsbUvcCamera extends CordovaPlugin {
         });
     }
 
-    private void failPendingPhoto(String message) {
-        clearPhotoTimeout();
-        if (photoCallback != null) {
-            photoCallback.error(message);
-            photoCallback = null;
+    private void capturePreviewTextureAsBase64Async(int width, int height, TextureCaptureCallback callback) {
+        if (callback == null) {
+            return;
         }
-    }
-
-    private String capturePreviewTextureAsBase64(int width, int height) {
-        if (previewView == null || width <= 0 || height <= 0) {
-            Log.d(TAG, "Skipping TextureView capture because previewView=" + previewView
-                    + ", width=" + width + ", height=" + height);
-            return null;
-        }
+        Runnable armCapture = () -> {
+            if (previewView == null || width <= 0 || height <= 0) {
+                callback.onCaptured(null);
+                return;
+            }
+            if (!previewView.isAvailable()) {
+                Log.d(TAG, "Skipping TextureView capture because previewView is not available");
+                callback.onCaptured(null);
+                return;
+            }
+            clearPendingSurfaceTextureCapture();
+            AtomicReference<Boolean> completed = new AtomicReference<>(false);
+            Runnable performCapture = () -> {
+                if (Boolean.TRUE.equals(completed.get())) {
+                    return;
+                }
+                completed.set(true);
+                callback.onCaptured(capturePreviewTextureAsBase64OnMainThread(width, height));
+            };
+            pendingSurfaceTextureUpdatedAction = performCapture;
+            pendingSurfaceTextureUpdatedTimeout = () -> {
+                pendingSurfaceTextureUpdatedAction = null;
+                pendingSurfaceTextureUpdatedTimeout = null;
+                performCapture.run();
+            };
+            mainHandler.postDelayed(pendingSurfaceTextureUpdatedTimeout, 700);
+        };
 
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            return capturePreviewTextureAsBase64OnMainThread(width, height);
+            armCapture.run();
+        } else {
+            mainHandler.post(armCapture);
         }
-
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<String> result = new AtomicReference<>();
-
-        mainHandler.post(() -> {
-            try {
-                result.set(capturePreviewTextureAsBase64OnMainThread(width, height));
-            } finally {
-                latch.countDown();
-            }
-        });
-
-        try {
-            if (!latch.await(1500, TimeUnit.MILLISECONDS)) {
-                Log.w(TAG, "Timed out while capturing preview TextureView bitmap");
-                return null;
-            }
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
-
-        return result.get();
     }
 
     private void clearPendingSurfaceTextureCapture() {

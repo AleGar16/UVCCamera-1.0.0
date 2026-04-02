@@ -1408,6 +1408,32 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Ripristino cattura TextureView sul frame renderizzato successivo
+
+### Richiesta o problema
+
+- i log hanno confermato che `TextureView` e `Bitmap` erano davvero `1920x1080`, quindi il problema qualita' non dipendeva piu' da un semplice upscale di dimensione
+- incrociando il codice attuale con il worklog storico, mancava pero' la parte in cui la cattura veniva agganciata al prossimo `onSurfaceTextureUpdated`, cioe' a un frame realmente aggiornato della preview
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `attemptTakePhoto()` non usa piu' una lettura sincrona immediata della `TextureView`
+- ora arma una cattura one-shot asincrona legata al prossimo `onSurfaceTextureUpdated`, con timeout breve di sicurezza (`700 ms`)
+- se il bitmap `TextureView` non arriva o non e' utilizzabile, il plugin ricade ancora sul percorso raw preview gia' esistente
+- e' stata anche separata in un helper dedicato la codifica del fallback raw, per mantenere chiaro l'ordine:
+  1. `TextureView` su frame renderizzato fresco
+  2. raw preview fallback
+
+### Stato finale
+
+- il percorso foto torna coerente con il worklog che in passato aveva dato i risultati migliori sulla preview renderizzata
+- al prossimo test potremo capire se la perdita di dettaglio era dovuta a un frame `TextureView` letto troppo presto/non aggiornato, pur con size `1920x1080` corretta
+
 ## 2026-04-02 - Diagnostica one-shot della TextureView di cattura
 
 ### Richiesta o problema
