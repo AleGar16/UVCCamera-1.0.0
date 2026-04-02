@@ -20,6 +20,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
@@ -76,6 +77,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int HIGH_RES_CAPTURE_MIN_BYTES = 4096;
     private static final int RECONNECT_DELAY_MS = 1200;
     private static final int OPEN_RETRY_DELAY_MS = 600;
+    private static final int OPEN_AFTER_RELEASE_COOLDOWN_MS = 350;
     private static final int MAX_OPEN_RETRIES = 2;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
@@ -103,6 +105,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private USBMonitor.UsbControlBlock pendingCtrlBlock;
     private boolean openingCamera = false;
     private int openRetryCount = 0;
+    private long lastCameraReleaseElapsedMs = 0L;
     private boolean autoReconnectEnabled = false;
     private boolean reconnectScheduled = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -1516,6 +1519,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             } catch (Exception ignored) {
             }
             currentCamera = null;
+            lastCameraReleaseElapsedMs = SystemClock.elapsedRealtime();
         }
         synchronized (previewFrameLock) {
             latestPreviewFrame = null;
@@ -1636,6 +1640,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         USBMonitor.UsbControlBlock ctrlBlock = pendingCtrlBlock;
         pendingOpenDevice = null;
         pendingCtrlBlock = null;
+        long elapsedSinceRelease = SystemClock.elapsedRealtime() - lastCameraReleaseElapsedMs;
+        if (lastCameraReleaseElapsedMs > 0 && elapsedSinceRelease < OPEN_AFTER_RELEASE_COOLDOWN_MS) {
+            long delayMs = OPEN_AFTER_RELEASE_COOLDOWN_MS - elapsedSinceRelease;
+            Log.i(TAG, "Delaying UVC open for cooldown after release: " + delayMs + " ms");
+            pendingOpenDevice = device;
+            pendingCtrlBlock = ctrlBlock;
+            mainHandler.postDelayed(this::maybeOpenPendingDevice, delayMs);
+            return;
+        }
         Log.i(TAG, "maybeOpenPendingDevice proceeding with device " + device.getDeviceName());
         openConnectedDevice(device, ctrlBlock);
     }
