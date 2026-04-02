@@ -1740,3 +1740,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il plugin torna a privilegiare la preview high-res reale gia' disponibile, invece di insistere su un backend still che su questo totem continua a chiudere a `640x480`
+
+## 2026-04-02 - Riallineamento stato interno AUSBC dopo negoziazione low-level high-res
+
+### Richiesta o problema
+
+- i log mostravano una situazione incoerente:
+  - preview negoziata bassa `1920x1080`
+  - `TextureView` `1920x1080`
+  - ma ultimo frame preview AUSBC ancora `640x480`
+- l'analisi del sorgente `AndroidUSBCamera` ha mostrato che `MultiCameraClient.openCamera()` sceglie inizialmente la size tramite `getSuitableSize(...)`, e il callback preview/coda NV21 restano poi agganciati allo stato interno `mPreviewSize`/`mCameraRequest`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- dopo la negoziazione high-res su `UVCCamera`, il plugin ora riallinea anche lo stato interno di `MultiCameraClient.Camera`:
+  - aggiorna `mPreviewSize`
+  - aggiorna `mCameraRequest.previewWidth/previewHeight`
+  - svuota la coda NV21 interna
+  - riaggancia il `frameCallBack` tipizzato gia' usato dalla libreria, ma dopo il resize negoziato
+- in questo modo il path preview di AUSBC ha finalmente una chance concreta di smettere di consegnare frame `640x480` stantii o ancora legati alla size iniziale
+
+### Stato finale
+
+- implementato; il prossimo test dovra' dire se `Photo source metrics` smette di riportare `latestPreviewFrame=640x480` quando la preview negoziata e' gia' `1920x1080`

@@ -2006,6 +2006,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                         if (negotiated[0] >= requestedPreviewWidth && negotiated[1] >= requestedPreviewHeight) {
                             previewWidth = negotiated[0];
                             previewHeight = negotiated[1];
+                            syncAusbcInternalPreviewState(uvcCamera, previewWidth, previewHeight);
                             return;
                         }
                     }
@@ -2015,11 +2016,72 @@ public class UsbUvcCamera extends CordovaPlugin {
             if (bestWidth > 0 && bestHeight > 0) {
                 previewWidth = bestWidth;
                 previewHeight = bestHeight;
+                syncAusbcInternalPreviewState(uvcCamera, bestWidth, bestHeight);
                 Log.i(TAG, "Underlying UVCCamera preview stream configured using best negotiated size="
                         + bestWidth + "x" + bestHeight + ", frameFormat=" + bestFrameFormat);
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to reconfigure underlying UVCCamera preview stream", exception);
+        }
+    }
+
+    private void syncAusbcInternalPreviewState(UVCCamera uvcCamera, int width, int height) {
+        if (currentCamera == null || uvcCamera == null || width <= 0 || height <= 0) {
+            return;
+        }
+        try {
+            Field previewSizeField = MultiCameraClient.Camera.class.getDeclaredField("mPreviewSize");
+            previewSizeField.setAccessible(true);
+            previewSizeField.set(currentCamera, new PreviewSize(width, height));
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to update AUSBC preview size cache", exception);
+        }
+
+        try {
+            Field cameraRequestField = MultiCameraClient.Camera.class.getDeclaredField("mCameraRequest");
+            cameraRequestField.setAccessible(true);
+            Object request = cameraRequestField.get(currentCamera);
+            if (request instanceof CameraRequest) {
+                ((CameraRequest) request).setPreviewWidth(width);
+                ((CameraRequest) request).setPreviewHeight(height);
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to update AUSBC camera request preview size", exception);
+        }
+
+        try {
+            Field nv21QueueField = MultiCameraClient.Camera.class.getDeclaredField("mNV21DataQueue");
+            nv21QueueField.setAccessible(true);
+            Object queue = nv21QueueField.get(currentCamera);
+            if (queue instanceof java.util.Collection) {
+                ((java.util.Collection<?>) queue).clear();
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to clear AUSBC preview frame queue", exception);
+        }
+
+        try {
+            Field frameCallbackField = MultiCameraClient.Camera.class.getDeclaredField("frameCallBack");
+            frameCallbackField.setAccessible(true);
+            Object callback = frameCallbackField.get(currentCamera);
+            if (callback instanceof IFrameCallback) {
+                uvcCamera.setFrameCallback((IFrameCallback) callback, UVCCamera.PIXEL_FORMAT_YUV420SP);
+                Log.i(TAG, "Rebound AUSBC preview callback after negotiated preview resize to "
+                        + width + "x" + height);
+            }
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to rebind AUSBC preview callback after preview resize", exception);
+        }
+
+        synchronized (previewFrameLock) {
+            latestPreviewFrame = null;
+            latestPreviewFrameWidth = -1;
+            latestPreviewFrameHeight = -1;
+            latestPreviewFrameFromUnderlying = false;
+            latestPreviewFrameFormat = "unknown";
+            loggedFirstPreviewFrame = false;
+            loggedRejectedDarkFrame = false;
+            loggedAdjustedPreviewFrameSize = false;
         }
     }
 
