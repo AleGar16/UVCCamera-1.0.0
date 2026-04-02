@@ -28,6 +28,20 @@ Formato usato:
 - Stato:
   implementato, da validare con nuovo log runtime.
 
+### 0n. Disabilitazione automatica della recovery AUSBC quando resta bloccata a VGA
+
+- Richiesta/problema:
+  dopo la stabilizzazione del lifecycle, i log hanno mostrato che `updateResolution(...)` riapriva correttamente la camera ma il preview raw restava comunque `640x480`; inoltre l'artefatto reale 3.2.7 non espone il campo `mNV21DataQueue`, generando warning riflessivi inutili.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - se dopo una recovery completata il primo frame NV21 resta ancora sotto il target ed e' ancora VGA, il plugin marca la recovery AUSBC come non efficace per la sessione corrente e smette di ritentarla
+  - il reset di questo flag avviene solo su una nuova `open`/`recoverCamera` esplicita
+  - il tentativo di pulizia della queue interna AUSBC ora gestisce `NoSuchFieldException` in modo silenzioso/one-shot, senza stacktrace rumoroso
+- Motivo tecnico:
+  una recovery costosa ma non efficace peggiora latenza e jank senza aumentare la qualita'; meglio saltarla in automatico finche' non si sostituisce o patcha la dipendenza AUSBC.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
 ### 0. Stabilizzazione dopo crash nativo del callback raw
 
 - Richiesta/problema:

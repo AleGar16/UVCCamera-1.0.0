@@ -128,6 +128,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedPhotoSourceMetrics = false;
     private boolean ausbcResolutionRecoveryAttempted = false;
     private boolean ausbcResolutionRecoveryInProgress = false;
+    private boolean ausbcResolutionRecoveryUnsupported = false;
+    private boolean loggedMissingAusbcNv21Queue = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -202,6 +204,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 openingCamera = true;
                 openRetryCount = 0;
                 autoReconnectEnabled = true;
+                ausbcResolutionRecoveryUnsupported = false;
                 ensureCameraClient();
                 if (cameraClient != null) {
                     safeRegisterCameraClient();
@@ -283,6 +286,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         openingCamera = true;
         openRetryCount = 0;
         autoReconnectEnabled = true;
+        ausbcResolutionRecoveryUnsupported = false;
         ensureCameraClient();
         cordova.getActivity().runOnUiThread(this::ensurePreviewView);
 
@@ -1417,6 +1421,18 @@ public class UsbUvcCamera extends CordovaPlugin {
                                 + callbackFrameWidth + "x" + callbackFrameHeight
                                 + " based on byteLength=" + data.length);
                     }
+                    if (ausbcResolutionRecoveryAttempted
+                            && !ausbcResolutionRecoveryInProgress
+                            && !ausbcResolutionRecoveryUnsupported) {
+                        int negotiatedPixels = Math.max(1, previewWidth) * Math.max(1, previewHeight);
+                        int callbackPixels = Math.max(1, callbackFrameWidth) * Math.max(1, callbackFrameHeight);
+                        if (negotiatedPixels > callbackPixels && callbackPixels <= (640 * 480)) {
+                            ausbcResolutionRecoveryUnsupported = true;
+                            Log.w(TAG, "AUSBC resolution recovery reopened cleanly but raw preview is still limited to "
+                                    + callbackFrameWidth + "x" + callbackFrameHeight
+                                    + "; disabling further recovery attempts for this session");
+                        }
+                    }
                     if (isLikelyDarkNv21Frame(data, callbackFrameWidth, callbackFrameHeight)) {
                         if (!loggedRejectedDarkFrame) {
                             loggedRejectedDarkFrame = true;
@@ -2086,7 +2102,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void maybeTriggerAusbcResolutionRecoveryAfterOpen(MultiCameraClient.Camera camera) {
-        if (camera == null || ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress) {
+        if (camera == null || ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress
+                || ausbcResolutionRecoveryUnsupported) {
             return;
         }
         PreviewSize targetPreviewSize = resolveTargetPreviewSize(currentPreviewSizes);
@@ -2138,7 +2155,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean shouldAttemptAusbcResolutionRecovery(int[] negotiatedPreviewSize, PreviewSize frameSize, boolean frameFromUnderlying) {
-        if (ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress) {
+        if (ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress || ausbcResolutionRecoveryUnsupported) {
             return false;
         }
         if (currentCamera == null || frameFromUnderlying || frameSize == null) {
@@ -2367,6 +2384,11 @@ public class UsbUvcCamera extends CordovaPlugin {
             Object queue = nv21QueueField.get(currentCamera);
             if (queue instanceof java.util.Collection) {
                 ((java.util.Collection<?>) queue).clear();
+            }
+        } catch (NoSuchFieldException exception) {
+            if (!loggedMissingAusbcNv21Queue) {
+                loggedMissingAusbcNv21Queue = true;
+                Log.i(TAG, "Skipping AUSBC preview frame queue clear because current artifact does not expose mNV21DataQueue");
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to clear AUSBC preview frame queue", exception);
