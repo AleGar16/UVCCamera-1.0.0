@@ -42,6 +42,17 @@ Formato usato:
 - Stato:
   implementato, da validare con nuovo log runtime.
 
+### 0o. Riduzione del rumore dei warning riflessivi su `CameraRequest`
+
+- Richiesta/problema:
+  i log di apertura camera continuavano a ripetere stacktrace noti per API assenti nell'artefatto AUSBC 3.2.7 (`PreviewFormat`, `setPreviewFormat`, `setRawPreviewData`, `setCaptureRawImage`), nascondendo i segnali davvero utili.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java` i controlli riflessivi su `CameraRequest.Builder` ora loggano in modo one-shot e senza stacktrace quando un metodo/classe non esiste nell'artefatto corrente.
+- Motivo tecnico:
+  il comportamento non cambia, ma i prossimi log restano molto piu' leggibili mentre continuiamo a indagare il bug reale di selezione preview dentro AUSBC.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
 ### 0. Stabilizzazione dopo crash nativo del callback raw
 
 - Richiesta/problema:
