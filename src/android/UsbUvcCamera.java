@@ -1894,23 +1894,25 @@ public class UsbUvcCamera extends CordovaPlugin {
             return requestedSize;
         }
 
-        if (requestedSize != null) {
-            return requestedSize;
-        }
-
-        int[][] preferredFallbacks = new int[][] {
+        int[][] preferredCandidates = new int[][] {
+                {1920, 1080},
+                {1600, 896},
                 {1280, 720},
-                {960, 720},
                 {1024, 576},
+                {960, 720},
                 {864, 480},
                 {800, 600},
                 {640, 480}
         };
-        for (int[] candidate : preferredFallbacks) {
+        for (int[] candidate : preferredCandidates) {
             PreviewSize candidateSize = findMatchingPreviewSize(sizes, candidate[0], candidate[1]);
             if (candidateSize != null) {
                 return candidateSize;
             }
+        }
+
+        if (requestedSize != null) {
+            return requestedSize;
         }
 
         PreviewSize highestSize = null;
