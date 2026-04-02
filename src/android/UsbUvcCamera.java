@@ -122,6 +122,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedBackendApiSnapshot = false;
     private boolean loggedAdjustedPreviewFrameSize = false;
     private boolean loggedTextureCaptureMetrics = false;
+    private boolean loggedPhotoSourceMetrics = false;
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -529,6 +530,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
         int textureCaptureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : frameSize.getWidth();
         int textureCaptureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : frameSize.getHeight();
+        if (!loggedPhotoSourceMetrics) {
+            loggedPhotoSourceMetrics = true;
+            Log.i(TAG, "Photo source metrics negotiatedPreview="
+                    + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]
+                    + ", latestPreviewFrame=" + frameSize.getWidth() + "x" + frameSize.getHeight()
+                    + ", latestPreviewFormat=" + frameFormat
+                    + ", latestPreviewFromUnderlying=" + frameFromUnderlying
+                    + ", textureView=" + (previewView != null ? (previewView.getWidth() + "x" + previewView.getHeight()) : "null"));
+        }
         capturePreviewTextureAsBase64Async(textureCaptureWidth, textureCaptureHeight, textureEncodedImage -> {
             if (textureEncodedImage != null) {
                 clearPhotoTimeout();
@@ -1482,6 +1492,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             loggedRejectedDarkFrame = false;
             loggedAdjustedPreviewFrameSize = false;
             loggedTextureCaptureMetrics = false;
+            loggedPhotoSourceMetrics = false;
         }
         currentPreviewSizes = new ArrayList<>();
         if (resetOpeningFlag) {
@@ -2009,6 +2020,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             loggedRejectedDarkFrame = false;
             loggedAdjustedPreviewFrameSize = false;
             loggedTextureCaptureMetrics = false;
+            loggedPhotoSourceMetrics = false;
         }
     }
 
