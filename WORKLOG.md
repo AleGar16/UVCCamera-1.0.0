@@ -1768,3 +1768,29 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' dire se `Photo source metrics` smette di riportare `latestPreviewFrame=640x480` quando la preview negoziata e' gia' `1920x1080`
+
+## 2026-04-02 - Rimozione del rebind esplicito del frame callback AUSBC dopo resize
+
+### Richiesta o problema
+
+- il test runtime successivo ha mostrato:
+  - `Rebound AUSBC preview callback after negotiated preview resize to 1920x1080`
+  - crash nativo immediato in `libUVCCamera.so` dentro `UVCPreview::do_capture_callback`
+- quindi il riaggancio esplicito del callback, pur sensato sulla carta, riapriva lo stesso ramo nativo gia' risultato instabile sul totem
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `syncAusbcInternalPreviewState()` continua ad aggiornare:
+  - `mPreviewSize`
+  - `mCameraRequest.previewWidth/previewHeight`
+  - la coda NV21 interna
+- ma non richiama piu' `uvcCamera.setFrameCallback(...)` con il callback interno di AUSBC dopo la negoziazione high-res
+
+### Stato finale
+
+- il plugin conserva il riallineamento dello stato interno senza riaprire manualmente il percorso `do_capture_callback` che sul totem porta a `SIGSEGV`

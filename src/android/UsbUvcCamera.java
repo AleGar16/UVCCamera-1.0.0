@@ -37,7 +37,6 @@ import com.jiangdg.ausbc.camera.bean.CameraRequest;
 import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
-import com.serenegiant.usb.IFrameCallback;
 import com.serenegiant.usb.USBMonitor;
 import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
@@ -2059,19 +2058,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
         } catch (Exception exception) {
             Log.w(TAG, "Unable to clear AUSBC preview frame queue", exception);
-        }
-
-        try {
-            Field frameCallbackField = MultiCameraClient.Camera.class.getDeclaredField("frameCallBack");
-            frameCallbackField.setAccessible(true);
-            Object callback = frameCallbackField.get(currentCamera);
-            if (callback instanceof IFrameCallback) {
-                uvcCamera.setFrameCallback((IFrameCallback) callback, UVCCamera.PIXEL_FORMAT_YUV420SP);
-                Log.i(TAG, "Rebound AUSBC preview callback after negotiated preview resize to "
-                        + width + "x" + height);
-            }
-        } catch (Exception exception) {
-            Log.w(TAG, "Unable to rebind AUSBC preview callback after preview resize", exception);
         }
 
         synchronized (previewFrameLock) {
