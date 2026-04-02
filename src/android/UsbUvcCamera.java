@@ -1424,6 +1424,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                             logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
+                        maybeTriggerAusbcResolutionRecoveryAfterOpen(self);
                         openingCamera = false;
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -2012,6 +2013,58 @@ public class UsbUvcCamera extends CordovaPlugin {
             score -= 100000000;
         }
         return score;
+    }
+
+    private void maybeTriggerAusbcResolutionRecoveryAfterOpen(MultiCameraClient.Camera camera) {
+        if (camera == null || ausbcResolutionRecoveryAttempted || ausbcResolutionRecoveryInProgress) {
+            return;
+        }
+        PreviewSize targetPreviewSize = resolveTargetPreviewSize(currentPreviewSizes);
+        if (targetPreviewSize == null) {
+            return;
+        }
+        PreviewSize currentPreviewSize = camera.getPreviewSize();
+        if (currentPreviewSize == null) {
+            return;
+        }
+        int currentPixels = currentPreviewSize.getWidth() * currentPreviewSize.getHeight();
+        int targetPixels = targetPreviewSize.getWidth() * targetPreviewSize.getHeight();
+        if (currentPixels >= targetPixels) {
+            return;
+        }
+        try {
+            UVCCamera uvcCamera = getUnderlyingUvcCamera();
+            if (uvcCamera == null) {
+                return;
+            }
+            String supportedSizeJson = uvcCamera.getSupportedSize();
+            if (supportedSizeJson == null || supportedSizeJson.isEmpty()) {
+                return;
+            }
+            String reorderedSupportedSizeJson = reorderSupportedSizeJson(
+                    supportedSizeJson,
+                    targetPreviewSize.getWidth(),
+                    targetPreviewSize.getHeight()
+            );
+            if (reorderedSupportedSizeJson != null && !reorderedSupportedSizeJson.isEmpty()) {
+                Field supportedSizeField = UVCCamera.class.getDeclaredField("mSupportedSize");
+                supportedSizeField.setAccessible(true);
+                supportedSizeField.set(uvcCamera, reorderedSupportedSizeJson);
+            }
+            ausbcResolutionRecoveryAttempted = true;
+            ausbcResolutionRecoveryInProgress = true;
+            Log.i(TAG, "Triggering AUSBC open-time resolution recovery current="
+                    + currentPreviewSize.getWidth() + "x" + currentPreviewSize.getHeight()
+                    + ", target=" + targetPreviewSize.getWidth() + "x" + targetPreviewSize.getHeight());
+            mainHandler.postDelayed(() -> {
+                if (currentCamera == camera) {
+                    camera.updateResolution(targetPreviewSize.getWidth(), targetPreviewSize.getHeight());
+                }
+            }, 150);
+        } catch (Exception exception) {
+            ausbcResolutionRecoveryInProgress = false;
+            Log.w(TAG, "Unable to trigger AUSBC open-time resolution recovery", exception);
+        }
     }
 
     private boolean shouldAttemptAusbcResolutionRecovery(int[] negotiatedPreviewSize, PreviewSize frameSize, boolean frameFromUnderlying) {

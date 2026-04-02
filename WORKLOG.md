@@ -1851,3 +1851,28 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare se dopo `Triggering AUSBC updateResolution recovery ...` il frame preview raw smette finalmente di restare a `640x480`
+
+## 2026-04-02 - Spostamento del recovery AUSBC subito dopo OPENED
+
+### Richiesta o problema
+
+- i log hanno mostrato che prima dell'apertura reale la libreria restituisce:
+  - `initial-preview-sizes: none`
+- questo significa che i workaround solo pre-open hanno visibilita' insufficiente sullo stato reale di `AndroidUSBCamera 3.2.7`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- subito dopo `onCameraState OPENED`, quando `self.getAllPreviewSizes(null)` e `self.getPreviewSize()` sono finalmente affidabili, il plugin ora valuta se la libreria e' partita troppo bassa
+- se la preview corrente di AUSBC e' inferiore alla target high-res scelta, il plugin:
+  - riordina `UVCCamera.mSupportedSize`
+  - avvia una sola volta `currentCamera.updateResolution(targetWidth, targetHeight)` con leggero delay
+- in questo modo il tentativo di recovery usa il lifecycle ufficiale della libreria in un momento in cui i dati preview sono reali, evitando di basarsi su liste ancora vuote
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare una riga tipo `Triggering AUSBC open-time resolution recovery current=... target=...`
