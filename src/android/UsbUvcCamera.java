@@ -539,6 +539,21 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
+        int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
+        int textureCaptureWidth = negotiatedPreviewSize[0] > 0 ? negotiatedPreviewSize[0] : frameSize.getWidth();
+        int textureCaptureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : frameSize.getHeight();
+        String textureEncodedImage = capturePreviewTextureAsBase64(textureCaptureWidth, textureCaptureHeight);
+        if (textureEncodedImage != null) {
+            Log.i(TAG, "Preview TextureView bitmap encoding complete size="
+                    + textureCaptureWidth + "x" + textureCaptureHeight);
+            clearPhotoTimeout();
+            if (photoCallback != null) {
+                photoCallback.success(textureEncodedImage);
+                photoCallback = null;
+            }
+            return;
+        }
+
         Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight()
                 + ", frameLength=" + frameCopy.length + ", frameFormat=" + frameFormat);
         final byte[] encodedFrameData;
@@ -1095,12 +1110,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         List<HighResPhotoCaptureBackend> backends = new ArrayList<>();
-        backends.add(new NativeStillCaptureBackend(new NativeStillCaptureBackend.UvcCameraHandleProvider() {
-            @Override
-            public UVCCamera getCurrentUvcCamera() {
-                return getUnderlyingUvcCamera();
-            }
-        }));
         backends.add(new AusbcHighResPhotoCaptureBackend(new AusbcCameraHandleProvider() {
             @Override
             public MultiCameraClient.Camera getCurrentCamera() {

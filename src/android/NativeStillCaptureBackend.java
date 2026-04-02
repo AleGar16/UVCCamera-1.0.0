@@ -70,14 +70,7 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
 
         Log.i(TAG, "Starting native still capture at " + captureWidth + "x" + captureHeight);
 
-        EncodedJpeg encodedJpeg;
-        try {
-            encodedJpeg = captureOnce(uvcCamera, request, captureWidth, captureHeight);
-        } catch (PartialFrameException firstPartialFrame) {
-            Log.w(TAG, "Native still capture did not fill the requested frame, retrying after reapplying preview size", firstPartialFrame);
-            forceHighResolutionPreviewIfPossible(uvcCamera, captureWidth, captureHeight);
-            encodedJpeg = captureOnce(uvcCamera, request, captureWidth, captureHeight);
-        }
+        EncodedJpeg encodedJpeg = captureOnce(uvcCamera, request, captureWidth, captureHeight);
 
         writeJpegIfRequested(encodedJpeg.bytes, request.getOutputPath());
 
@@ -117,6 +110,7 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
         ImageReader imageReader = null;
         Surface captureSurface = null;
         final CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch callbackFinishedLatch = new CountDownLatch(1);
         final AtomicReference<EncodedJpeg> encodedJpegRef = new AtomicReference<>();
         final AtomicReference<Exception> errorRef = new AtomicReference<>();
 
@@ -136,14 +130,14 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
                         throw new IllegalStateException("Native still capture produced empty JPEG");
                     }
                     encodedJpegRef.set(encodedJpeg);
-                    latch.countDown();
                 } catch (Exception exception) {
                     errorRef.compareAndSet(null, exception);
-                    latch.countDown();
                 } finally {
                     if (image != null) {
                         image.close();
                     }
+                    latch.countDown();
+                    callbackFinishedLatch.countDown();
                 }
             }, handler);
 
@@ -179,6 +173,16 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
                 imageReader.close();
             }
             handlerThread.quitSafely();
+            try {
+                callbackFinishedLatch.await(750, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            try {
+                handlerThread.join(1000);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
