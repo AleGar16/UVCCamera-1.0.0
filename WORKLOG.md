@@ -1794,3 +1794,29 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il plugin conserva il riallineamento dello stato interno senza riaprire manualmente il percorso `do_capture_callback` che sul totem porta a `SIGSEGV`
+
+## 2026-04-02 - Riordino preventivo delle preview sizes AUSBC prima dell'open
+
+### Richiesta o problema
+
+- anche senza crash, i log continuavano a mostrare:
+  - `negotiatedPreview=1920x1080`
+  - ma `latestPreviewFrame=640x480`
+- l'analisi del sorgente `AndroidUSBCamera` ha mostrato che `MultiCameraClient.getSuitableSize(...)` sceglie la prima size della lista che soddisfa un match troppo permissivo, e questo puo' favorire `640x480` se compare presto nell'ordine interno
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- subito dopo `currentCamera.getAllPreviewSizes(null)` e prima di `openCamera(...)`, il plugin ora riordina la lista preview interna usata da AUSBC:
+  - mette in testa la target size scelta (`1920x1080` se disponibile)
+  - poi favorisce size piu' grandi
+  - penalizza esplicitamente `640x480`
+- dato che la lista restituita da `getAllPreviewSizes(...)` e' la stessa struttura usata internamente dal client, questo tenta di correggere la scelta sbagliata alla sorgente, senza toccare callback nativi instabili
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare se la preview raw di AUSBC smette finalmente di partire da `640x480`
