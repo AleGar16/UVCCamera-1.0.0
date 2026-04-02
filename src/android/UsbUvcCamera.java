@@ -37,6 +37,7 @@ import com.jiangdg.ausbc.camera.bean.CameraRequest;
 import com.jiangdg.ausbc.camera.bean.PreviewSize;
 import com.jiangdg.ausbc.utils.MediaUtils;
 import com.jiangdg.ausbc.widget.AspectRatioTextureView;
+import com.serenegiant.usb.IFrameCallback;
 import com.serenegiant.usb.USBMonitor;
 import com.serenegiant.usb.UVCCamera;
 import org.apache.cordova.CallbackContext;
