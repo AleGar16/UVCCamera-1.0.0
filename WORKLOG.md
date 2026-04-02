@@ -1408,6 +1408,30 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Diagnostica one-shot delle sorgenti foto al momento dello scatto
+
+### Richiesta o problema
+
+- dopo aver confermato che `TextureView` e `Bitmap` sono davvero `1920x1080`, restava da capire se il contenuto renderizzato provenisse comunque da un frame preview a dettaglio piu' basso
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- e' stato aggiunto un log one-shot `Photo source metrics ...` che riporta insieme:
+  - preview negoziata bassa (`UVCCamera.getPreviewSize()`)
+  - size del `latestPreviewFrame`
+  - formato del frame preview memorizzato
+  - provenienza del frame (`underlying` vs callback alto livello)
+  - size reale della `TextureView`
+
+### Stato finale
+
+- al prossimo test il log dira' se stiamo renderizzando dentro una `TextureView` `1920x1080` un frame realmente `1920x1080` oppure un contenuto preview piu' piccolo
+
 ## 2026-04-02 - Ripristino cattura TextureView sul frame renderizzato successivo
 
 ### Richiesta o problema
