@@ -1988,3 +1988,29 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' dire se gli open falliti con `err=-99` si riducono o spariscono
+
+## 2026-04-02 - Attesa del lock autofocus prima del primo scatto
+
+### Richiesta o problema
+
+- dopo aver portato il frame preview reale a `1920x1080`, il dubbio residuo sul totem e' diventato il fuoco:
+  - la foto sembra qualitativa come risoluzione
+  - ma il primo scatto puo' partire mentre il ciclo `autofocus -> lock` avviato su `OPENED` e' ancora in corso
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin ora traccia quando il lock smart focus e' ancora pendente
+- se `takePhoto()` arriva durante quella finestra, non cattura subito il `TextureView`, ma aspetta il completamento del lock autofocus e poi ritenta
+- in pratica:
+  - all'avvio del pulse autofocus salva l'istante previsto del lock
+  - al lock effettivo azzera lo stato pending
+  - prima dello scatto controlla se il lock e' ancora in sospeso e, se serve, ritarda lo scatto di quanto manca piu' un piccolo margine
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare una riga tipo `Delaying photo capture until smart focus lock completes ...` sui primi scatti molto rapidi dopo `OPENED`
