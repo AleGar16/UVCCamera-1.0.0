@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
     private static final String TAG = "NativeStillBackend";
+    private static final float MIN_FULL_FRAME_COVERAGE = 0.92f;
 
     interface UvcCameraHandleProvider {
         UVCCamera getCurrentUvcCamera();
@@ -65,86 +66,28 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
             throw new IllegalStateException("Invalid native still capture size");
         }
 
+        forceHighResolutionPreviewIfPossible(uvcCamera, captureWidth, captureHeight);
+
         Log.i(TAG, "Starting native still capture at " + captureWidth + "x" + captureHeight);
 
-        HandlerThread handlerThread = new HandlerThread("NativeStillCapture");
-        handlerThread.start();
-        Handler handler = new Handler(handlerThread.getLooper());
-        ImageReader imageReader = null;
-        Surface captureSurface = null;
-        final CountDownLatch latch = new CountDownLatch(1);
-        final AtomicReference<byte[]> jpegBytesRef = new AtomicReference<>();
-        final AtomicReference<Exception> errorRef = new AtomicReference<>();
-
+        EncodedJpeg encodedJpeg;
         try {
-            imageReader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 2);
-            captureSurface = imageReader.getSurface();
-
-            imageReader.setOnImageAvailableListener(reader -> {
-                Image image = null;
-                try {
-                    image = reader.acquireLatestImage();
-                    if (image == null) {
-                        return;
-                    }
-                    byte[] jpegBytes = compressImageToJpeg(image, request.getJpegQuality());
-                    if (jpegBytes == null || jpegBytes.length == 0) {
-                        throw new IllegalStateException("Native still capture produced empty JPEG");
-                    }
-                    jpegBytesRef.set(jpegBytes);
-                    latch.countDown();
-                } catch (Exception exception) {
-                    errorRef.compareAndSet(null, exception);
-                    latch.countDown();
-                } finally {
-                    if (image != null) {
-                        image.close();
-                    }
-                }
-            }, handler);
-
-            uvcCamera.startCapture(captureSurface);
-
-            if (!latch.await(request.getTimeoutMs(), TimeUnit.MILLISECONDS)) {
-                throw new IllegalStateException("Native still capture timed out");
-            }
-
-            if (errorRef.get() != null) {
-                throw errorRef.get();
-            }
-
-            byte[] jpegBytes = jpegBytesRef.get();
-            if (jpegBytes == null || jpegBytes.length == 0) {
-                throw new IllegalStateException("Native still capture did not produce an image");
-            }
-
-            writeJpegIfRequested(jpegBytes, request.getOutputPath());
-
-            return new HighResPhotoResult(
-                    Base64.encodeToString(jpegBytes, Base64.NO_WRAP),
-                    captureWidth,
-                    captureHeight,
-                    jpegBytes.length,
-                    getBackendName()
-            );
-        } finally {
-            try {
-                uvcCamera.stopCapture();
-            } catch (Exception exception) {
-                Log.w(TAG, "Failed stopping native still capture", exception);
-            }
-            if (captureSurface != null) {
-                captureSurface.release();
-            }
-            if (imageReader != null) {
-                try {
-                    imageReader.setOnImageAvailableListener(null, null);
-                } catch (Exception ignored) {
-                }
-                imageReader.close();
-            }
-            handlerThread.quitSafely();
+            encodedJpeg = captureOnce(uvcCamera, request, captureWidth, captureHeight);
+        } catch (PartialFrameException firstPartialFrame) {
+            Log.w(TAG, "Native still capture did not fill the requested frame, retrying after reapplying preview size", firstPartialFrame);
+            forceHighResolutionPreviewIfPossible(uvcCamera, captureWidth, captureHeight);
+            encodedJpeg = captureOnce(uvcCamera, request, captureWidth, captureHeight);
         }
+
+        writeJpegIfRequested(encodedJpeg.bytes, request.getOutputPath());
+
+        return new HighResPhotoResult(
+                Base64.encodeToString(encodedJpeg.bytes, Base64.NO_WRAP),
+                encodedJpeg.width,
+                encodedJpeg.height,
+                encodedJpeg.bytes.length,
+                getBackendName()
+        );
     }
 
     @Override
@@ -167,7 +110,79 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
         };
     }
 
-    private byte[] compressImageToJpeg(Image image, int jpegQuality) throws Exception {
+    private EncodedJpeg captureOnce(UVCCamera uvcCamera, HighResPhotoRequest request, int captureWidth, int captureHeight) throws Exception {
+        HandlerThread handlerThread = new HandlerThread("NativeStillCapture");
+        handlerThread.start();
+        Handler handler = new Handler(handlerThread.getLooper());
+        ImageReader imageReader = null;
+        Surface captureSurface = null;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<EncodedJpeg> encodedJpegRef = new AtomicReference<>();
+        final AtomicReference<Exception> errorRef = new AtomicReference<>();
+
+        try {
+            imageReader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 2);
+            captureSurface = imageReader.getSurface();
+
+            imageReader.setOnImageAvailableListener(reader -> {
+                Image image = null;
+                try {
+                    image = reader.acquireLatestImage();
+                    if (image == null) {
+                        return;
+                    }
+                    EncodedJpeg encodedJpeg = compressImageToJpeg(image, request.getJpegQuality());
+                    if (encodedJpeg == null || encodedJpeg.bytes == null || encodedJpeg.bytes.length == 0) {
+                        throw new IllegalStateException("Native still capture produced empty JPEG");
+                    }
+                    encodedJpegRef.set(encodedJpeg);
+                    latch.countDown();
+                } catch (Exception exception) {
+                    errorRef.compareAndSet(null, exception);
+                    latch.countDown();
+                } finally {
+                    if (image != null) {
+                        image.close();
+                    }
+                }
+            }, handler);
+
+            uvcCamera.startCapture(captureSurface);
+
+            if (!latch.await(request.getTimeoutMs(), TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException("Native still capture timed out");
+            }
+
+            if (errorRef.get() != null) {
+                throw errorRef.get();
+            }
+
+            EncodedJpeg encodedJpeg = encodedJpegRef.get();
+            if (encodedJpeg == null || encodedJpeg.bytes == null || encodedJpeg.bytes.length == 0) {
+                throw new IllegalStateException("Native still capture did not produce an image");
+            }
+            return encodedJpeg;
+        } finally {
+            try {
+                uvcCamera.stopCapture();
+            } catch (Exception exception) {
+                Log.w(TAG, "Failed stopping native still capture", exception);
+            }
+            if (captureSurface != null) {
+                captureSurface.release();
+            }
+            if (imageReader != null) {
+                try {
+                    imageReader.setOnImageAvailableListener(null, null);
+                } catch (Exception ignored) {
+                }
+                imageReader.close();
+            }
+            handlerThread.quitSafely();
+        }
+    }
+
+    private EncodedJpeg compressImageToJpeg(Image image, int jpegQuality) throws Exception {
         Image.Plane[] planes = image.getPlanes();
         if (planes == null || planes.length == 0) {
             throw new IllegalStateException("ImageReader returned no planes");
@@ -188,28 +203,99 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
         buffer.rewind();
         bitmap.copyPixelsFromBuffer(buffer);
 
-        Bitmap croppedBitmap = bitmap;
+        Bitmap exactBitmap = bitmap;
         if (bitmapWidth != width) {
-            croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height);
+            exactBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height);
+        }
+
+        ContentBounds contentBounds = detectUsefulContent(exactBitmap);
+        if (!coversAlmostFullFrame(contentBounds, width, height)) {
+            throw new PartialFrameException("Native still capture content does not fill the requested frame: bounds="
+                    + contentBounds.width + "x" + contentBounds.height + " inside " + width + "x" + height);
         }
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream(width * height);
         try {
-            boolean compressed = croppedBitmap.compress(Bitmap.CompressFormat.JPEG, clampJpegQuality(jpegQuality), outputStream);
+            boolean compressed = exactBitmap.compress(Bitmap.CompressFormat.JPEG, clampJpegQuality(jpegQuality), outputStream);
             if (!compressed) {
                 throw new IllegalStateException("Bitmap JPEG compression failed");
             }
-            return outputStream.toByteArray();
+            return new EncodedJpeg(
+                    outputStream.toByteArray(),
+                    exactBitmap.getWidth(),
+                    exactBitmap.getHeight()
+            );
         } finally {
             try {
                 outputStream.close();
             } catch (Exception ignored) {
             }
-            if (croppedBitmap != bitmap) {
-                croppedBitmap.recycle();
+            if (exactBitmap != bitmap) {
+                exactBitmap.recycle();
             }
             bitmap.recycle();
         }
+    }
+
+    private ContentBounds detectUsefulContent(Bitmap bitmap) {
+        if (bitmap == null) {
+            throw new IllegalArgumentException("bitmap == null");
+        }
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int[] pixels = new int[width * height];
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+        final int threshold = 12;
+
+        for (int y = 0; y < height; y++) {
+            int rowOffset = y * width;
+            for (int x = 0; x < width; x++) {
+                int color = pixels[rowOffset + x];
+                int alpha = (color >>> 24) & 0xff;
+                int red = (color >>> 16) & 0xff;
+                int green = (color >>> 8) & 0xff;
+                int blue = color & 0xff;
+                if (alpha <= threshold && red <= threshold && green <= threshold && blue <= threshold) {
+                    continue;
+                }
+                if (x < minX) {
+                    minX = x;
+                }
+                if (y < minY) {
+                    minY = y;
+                }
+                if (x > maxX) {
+                    maxX = x;
+                }
+                if (y > maxY) {
+                    maxY = y;
+                }
+            }
+        }
+
+        if (maxX < minX || maxY < minY) {
+            return new ContentBounds(0, 0, 0, 0);
+        }
+
+        int croppedWidth = maxX - minX + 1;
+        int croppedHeight = maxY - minY + 1;
+        return new ContentBounds(minX, minY, croppedWidth, croppedHeight);
+    }
+
+    private boolean coversAlmostFullFrame(ContentBounds contentBounds, int width, int height) {
+        if (contentBounds == null || width <= 0 || height <= 0) {
+            return false;
+        }
+        float widthCoverage = (float) contentBounds.width / (float) width;
+        float heightCoverage = (float) contentBounds.height / (float) height;
+        return widthCoverage >= MIN_FULL_FRAME_COVERAGE
+                && heightCoverage >= MIN_FULL_FRAME_COVERAGE;
     }
 
     private int clampJpegQuality(int jpegQuality) {
@@ -243,6 +329,57 @@ public class NativeStillCaptureBackend implements HighResPhotoCaptureBackend {
                 } catch (Exception ignored) {
                 }
             }
+        }
+    }
+
+    private void forceHighResolutionPreviewIfPossible(UVCCamera uvcCamera, int width, int height) {
+        if (uvcCamera == null || width <= 0 || height <= 0) {
+            return;
+        }
+        try {
+            uvcCamera.setPreviewSize(width, height, UVCCamera.FRAME_FORMAT_MJPEG);
+            Log.i(TAG, "Requested native preview size " + width + "x" + height + " with MJPEG");
+            return;
+        } catch (Exception mjpegException) {
+            Log.w(TAG, "Unable to force MJPEG preview size " + width + "x" + height, mjpegException);
+        }
+        try {
+            uvcCamera.setPreviewSize(width, height, UVCCamera.FRAME_FORMAT_YUYV);
+            Log.i(TAG, "Requested native preview size " + width + "x" + height + " with YUYV");
+        } catch (Exception yuyvException) {
+            Log.w(TAG, "Unable to force YUYV preview size " + width + "x" + height, yuyvException);
+        }
+    }
+
+    private static final class EncodedJpeg {
+        final byte[] bytes;
+        final int width;
+        final int height;
+
+        EncodedJpeg(byte[] bytes, int width, int height) {
+            this.bytes = bytes;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
+    private static final class ContentBounds {
+        final int left;
+        final int top;
+        final int width;
+        final int height;
+
+        ContentBounds(int left, int top, int width, int height) {
+            this.left = left;
+            this.top = top;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
+    private static final class PartialFrameException extends IllegalStateException {
+        PartialFrameException(String message) {
+            super(message);
         }
     }
 }
