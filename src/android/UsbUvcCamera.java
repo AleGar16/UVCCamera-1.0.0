@@ -783,8 +783,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return true;
             }
 
-            uvcCamera.updateCameraParams();
-
             JSONObject result = new JSONObject();
             result.put("deviceName", currentDevice != null ? currentDevice.getDeviceName() : JSONObject.NULL);
             result.put("vendorId", currentDevice != null ? currentDevice.getVendorId() : JSONObject.NULL);
@@ -799,7 +797,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             support.put("brightness", uvcCamera.checkSupportFlag(UVCCamera.PU_BRIGHTNESS));
             support.put("contrast", uvcCamera.checkSupportFlag(UVCCamera.PU_CONTRAST));
             support.put("sharpness", uvcCamera.checkSupportFlag(UVCCamera.PU_SHARPNESS));
-            support.put("gain", uvcCamera.checkSupportFlag(UVCCamera.PU_GAIN));
             support.put("gamma", uvcCamera.checkSupportFlag(UVCCamera.PU_GAMMA));
             support.put("saturation", uvcCamera.checkSupportFlag(UVCCamera.PU_SATURATION));
             support.put("hue", uvcCamera.checkSupportFlag(UVCCamera.PU_HUE));
@@ -818,7 +815,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             current.put("brightness", uvcCamera.getBrightness());
             current.put("contrast", uvcCamera.getContrast());
             current.put("sharpness", uvcCamera.getSharpness());
-            current.put("gain", uvcCamera.getGain());
             current.put("gamma", uvcCamera.getGamma());
             current.put("saturation", uvcCamera.getSaturation());
             current.put("hue", uvcCamera.getHue());
@@ -834,7 +830,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             ranges.put("brightness", buildRangeJson(uvcCamera, "mBrightnessMin", "mBrightnessMax", "mBrightnessDef"));
             ranges.put("contrast", buildRangeJson(uvcCamera, "mContrastMin", "mContrastMax", "mContrastDef"));
             ranges.put("sharpness", buildRangeJson(uvcCamera, "mSharpnessMin", "mSharpnessMax", "mSharpnessDef"));
-            ranges.put("gain", buildRangeJson(uvcCamera, "mGainMin", "mGainMax", "mGainDef"));
             ranges.put("gamma", buildRangeJson(uvcCamera, "mGammaMin", "mGammaMax", "mGammaDef"));
             ranges.put("saturation", buildRangeJson(uvcCamera, "mSaturationMin", "mSaturationMax", "mSaturationDef"));
             ranges.put("hue", buildRangeJson(uvcCamera, "mHueMin", "mHueMax", "mHueDef"));

@@ -1408,6 +1408,28 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Protezione crash nativo su query gain
+
+### Richiesta o problema
+
+- il totem andava in crash nativo (`SIGABRT`) dentro `libUVCCamera.so` durante la lettura dei parametri camera, con stack che passava da `uvc_get_gain` e `UVCCamera::updateGainLimit`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il metodo `getCameraCapabilities()` eseguiva `uvcCamera.updateCameraParams()` e includeva anche `gain` in `support`, `current` e `ranges`
+- su questo device quel percorso entra nel ramo nativo del gain e puo' abortire il processo
+- ora il report capabilities evita sia `updateCameraParams()` sia la lettura diretta del `gain`
+
+### Stato finale
+
+- il plugin non dovrebbe piu' crashare quando l'app interroga le capabilities della camera
+- il campo `gain` non viene piu' restituito nel report, per privilegiare la stabilita' rispetto alla completezza
+
 ## 2026-04-02 - Rimozione upscale artificiale dalla cattura TextureView
 
 ### Richiesta o problema
