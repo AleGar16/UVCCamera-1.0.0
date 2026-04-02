@@ -119,6 +119,19 @@ Formato usato:
 - Stato:
   implementato, da validare su device con log runtime.
 
+### 0i. Rimozione completa del backend still nativo dal sorgente
+
+- Richiesta/problema:
+  i log successivi mostravano ancora crash nel thread di capture nativo senza nemmeno arrivare ai log di `takePhoto()`, quindi serviva eliminare ogni ambiguita' sul fatto che l'APK testato potesse ancora contenere il backend still nativo sperimentale.
+- Modifica fatta:
+  - eliminato `src/android/NativeStillCaptureBackend.java`
+  - aggiunto in `src/android/UsbUvcCamera.java` un log one-shot all'inizio di `attemptTakePhoto()`:
+    `Photo capture path active: preview-texture-primary, raw-preview-fallback`
+- Motivo tecnico:
+  cosi' il prossimo test puo' confermare in modo netto che il percorso foto attivo e' solo quello basato sulla preview validata nel worklog, senza alcun backend still nativo residuo.
+- Stato:
+  implementato; al prossimo test serve una reinstallazione pulita dell'APK/plugin.
+
 ### 1. Rimozione fallback screenshot-based
 
 - Richiesta/problema:

@@ -475,6 +475,9 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void attemptTakePhoto(File photoFile, int attempt) {
         Log.d(TAG, "attemptTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
+        if (attempt == 1) {
+            Log.i(TAG, "Photo capture path active: preview-texture-primary, raw-preview-fallback");
+        }
         refreshCurrentDeviceReference();
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
