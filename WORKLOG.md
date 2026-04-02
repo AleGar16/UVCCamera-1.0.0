@@ -12,6 +12,22 @@ Formato usato:
 
 ## 2026-04-01
 
+### 0m. Guardia lifecycle durante `updateResolution(...)` di AUSBC
+
+- Richiesta/problema:
+  i log del 2026-04-02 hanno mostrato che la recovery interna `currentCamera.updateResolution(...)` faceva scattare i callback `disconnect/detach/connect` del plugin come se fosse un unplug reale; da li' partiva un loop `release -> reconnect -> open -> result=-99`.
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  - i callback `onAttachDev`, `onDetachDec`, `onDisConnectDec` e `onConnectDev` ignorano gli eventi del device selezionato mentre `ausbcResolutionRecoveryInProgress` e' vero
+  - `maybeOpenPendingDevice()` non apre una nuova camera se una camera e' gia' attiva/in apertura e rimanda l'open se la recovery interna e' ancora in corso
+  - `takePhoto()` durante la recovery aspetta il reopen interno invece di richiedere una nuova permission/reopen top-level
+  - lo stato `CLOSED` non azzera piu' subito il flag di recovery, cosi' l'intero reopen interno resta protetto fino a `OPENED` o `ERROR`
+  - `scheduleReconnect()` non pianifica reconnect mentre e' gia' in corso un open o una recovery interna
+- Motivo tecnico:
+  la riconfigurazione preview di AUSBC deve essere trattata come transizione interna del backend, non come disconnessione fisica della webcam; separare questi due piani evita la tempesta di open concorrenti che porta a `nativeConnect result=-99`.
+- Stato:
+  implementato, da validare con nuovo log runtime.
+
 ### 0. Stabilizzazione dopo crash nativo del callback raw
 
 - Richiesta/problema:
