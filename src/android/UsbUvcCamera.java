@@ -363,7 +363,6 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private boolean takePhoto(CallbackContext callbackContext) {
         cordova.getThreadPool().execute(() -> {
-            Log.i(TAG, "takePhoto requested");
             photoCallback = callbackContext;
             String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
             File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
@@ -377,7 +376,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                 storageDir.mkdirs();
             }
             File photoFile = new File(storageDir, fileName);
-            Log.i(TAG, "takePhoto target file: " + photoFile.getAbsolutePath());
 
             mainHandler.post(this::schedulePhotoTimeout);
             attemptHighResTakePhoto(photoFile, 1);
@@ -386,7 +384,6 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void attemptHighResTakePhoto(File photoFile, int attempt) {
-        Log.d(TAG, "attemptHighResTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
         refreshCurrentDeviceReference();
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
@@ -413,10 +410,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
-        if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
-            Log.i(TAG, "Keeping captureImage backend enabled with negotiated preview stream "
-                    + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
-        }
 
         if (photoFile.exists()) {
             //noinspection ResultOfMethodCallIgnored
@@ -432,9 +425,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
 
         int[] preferredStillCaptureSize = resolvePreferredStillCaptureSize(negotiatedPreviewSize);
-        Log.i(TAG, "Preparing high-res capture request target="
-                + preferredStillCaptureSize[0] + "x" + preferredStillCaptureSize[1]
-                + ", quality=100");
 
         HighResPhotoRequest request = new HighResPhotoRequest(
                 preferredStillCaptureSize[0],
@@ -449,10 +439,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             try {
                 HighResPhotoResult result = backend.capture(currentDevice, request);
                 mainHandler.post(() -> {
-                    Log.i(TAG, "High-res capture backend success backend=" + result.getBackendName()
-                            + ", width=" + result.getWidth()
-                            + ", height=" + result.getHeight()
-                            + ", bytes=" + result.getFileSizeBytes());
                     clearPhotoTimeout();
                     if (photoCallback != null) {
                         photoCallback.success(result.getBase64Jpeg());
@@ -474,10 +460,6 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private void attemptTakePhoto(File photoFile, int attempt) {
-        Log.d(TAG, "attemptTakePhoto attempt=" + attempt + ", currentCamera=" + (currentCamera != null) + ", currentDevice=" + (currentDevice != null ? currentDevice.getDeviceName() : "null"));
-        if (attempt == 1) {
-            Log.i(TAG, "Photo capture path active: preview-texture-primary, raw-preview-fallback");
-        }
         refreshCurrentDeviceReference();
         if (currentCamera == null) {
             if (currentDevice != null && attempt < MAX_TAKE_PHOTO_ATTEMPTS) {
@@ -532,7 +514,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         PreviewSize frameSize;
         if (frameWidth > 0 && frameHeight > 0) {
             frameSize = new PreviewSize(frameWidth, frameHeight);
-            Log.i(TAG, "Using stored preview frame size " + frameWidth + "x" + frameHeight);
         } else {
             frameSize = resolvePreviewSizeForFrame(frameCopy.length);
         }
@@ -547,8 +528,6 @@ public class UsbUvcCamera extends CordovaPlugin {
         int textureCaptureHeight = negotiatedPreviewSize[1] > 0 ? negotiatedPreviewSize[1] : frameSize.getHeight();
         String textureEncodedImage = capturePreviewTextureAsBase64(textureCaptureWidth, textureCaptureHeight);
         if (textureEncodedImage != null) {
-            Log.i(TAG, "Preview TextureView bitmap encoding complete size="
-                    + textureCaptureWidth + "x" + textureCaptureHeight);
             clearPhotoTimeout();
             if (photoCallback != null) {
                 photoCallback.success(textureEncodedImage);
@@ -557,16 +536,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        Log.i(TAG, "Encoding preview frame as base64 JPEG using size " + frameSize.getWidth() + "x" + frameSize.getHeight()
-                + ", frameLength=" + frameCopy.length + ", frameFormat=" + frameFormat);
         final byte[] encodedFrameData;
         if (frameFromUnderlying) {
             if ("yuyv".equals(frameFormat)) {
                 encodedFrameData = convertYuyvToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
-                Log.i(TAG, "Converting underlying preview frame from YUYV to NV21 before JPEG encoding");
             } else {
                 encodedFrameData = convertNv12ToNv21(frameCopy, frameSize.getWidth(), frameSize.getHeight());
-                Log.i(TAG, "Converting underlying preview frame from NV12/YUV420SP to NV21 before JPEG encoding");
             }
         } else {
             encodedFrameData = frameCopy;
@@ -583,7 +558,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                     failPendingPhoto("Failed to encode preview frame");
                     return;
                 }
-                Log.i(TAG, "Preview frame base64 encoding complete");
                 clearPhotoTimeout();
                 if (photoCallback != null) {
                     photoCallback.success(encodedImage);
@@ -651,16 +625,11 @@ public class UsbUvcCamera extends CordovaPlugin {
                 Log.d(TAG, "Skipping TextureView capture because previewView is not available");
                 return null;
             }
-            bitmap = previewView.getBitmap(width, height);
+            bitmap = previewView.getBitmap();
             if (bitmap == null) {
-                bitmap = previewView.getBitmap();
-                if (bitmap != null) {
-                    Log.i(TAG, "Falling back to native TextureView bitmap size "
-                            + bitmap.getWidth() + "x" + bitmap.getHeight());
-                } else {
-                    Log.d(TAG, "TextureView bitmap capture returned null for requested size "
-                            + width + "x" + height);
-                }
+                Log.d(TAG, "TextureView bitmap capture returned null for native size "
+                        + previewView.getWidth() + "x" + previewView.getHeight()
+                        + ", requestedTarget=" + width + "x" + height);
             }
             if (bitmap == null) {
                 return null;
@@ -969,22 +938,6 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         loggedBackendApiSnapshot = true;
-        try {
-            Log.i(TAG, "Backend API snapshot cameraRequestBuilderMethods="
-                    + collectMatchingMethodNames(CameraRequest.Builder.class,
-                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render"));
-            Log.i(TAG, "Backend API snapshot multiCameraClientCameraMethods="
-                    + collectMatchingMethodNames(MultiCameraClient.Camera.class,
-                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "render", "size"));
-            Log.i(TAG, "Backend API snapshot uvcCameraMethods="
-                    + collectMatchingMethodNames(UVCCamera.class,
-                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
-            Log.i(TAG, "Backend API snapshot uvcCameraFields="
-                    + collectMatchingFieldNames(UVCCamera.class,
-                    "preview", "format", "raw", "capture", "frame", "mjpeg", "yuv", "size", "mode"));
-        } catch (Exception exception) {
-            Log.w(TAG, "Unable to log backend API snapshot", exception);
-        }
     }
 
     private boolean applyStableCameraProfile(JSONArray args, CallbackContext callbackContext) {
@@ -1390,8 +1343,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         latestPreviewFrameFormat = "nv21";
                         if (!loggedFirstPreviewFrame) {
                             loggedFirstPreviewFrame = true;
-                            Log.i(TAG, "Received first preview frame from preview callback size="
-                                    + callbackFrameWidth + "x" + callbackFrameHeight + ", bytes=" + data.length);
                         }
                     }
                 }
@@ -1410,7 +1361,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                             logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
-                        logPreviewSizes("available-preview-sizes", currentPreviewSizes);
                         openingCamera = false;
                         if (openCallback != null) {
                             JSONObject result = new JSONObject();
@@ -1998,8 +1948,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         }
                     }
                     int[] negotiated = getNegotiatedPreviewSize();
-                    Log.i(TAG, "Underlying preview negotiation attempt requested=" + candidateWidth + "x" + candidateHeight
-                            + ", frameFormat=" + frameFormat + ", negotiated=" + negotiated[0] + "x" + negotiated[1]);
                     if (negotiated[0] > 0 && negotiated[1] > 0) {
                         int negotiatedPixels = negotiated[0] * negotiated[1];
                         if (negotiatedPixels > bestPixels) {
@@ -2011,8 +1959,6 @@ public class UsbUvcCamera extends CordovaPlugin {
                         if (negotiated[0] >= requestedPreviewWidth && negotiated[1] >= requestedPreviewHeight) {
                             previewWidth = negotiated[0];
                             previewHeight = negotiated[1];
-                            Log.i(TAG, "Underlying UVCCamera preview stream configured at target or higher, previewSize="
-                                    + negotiated[0] + "x" + negotiated[1] + ", frameFormat=" + frameFormat);
                             return;
                         }
                     }
