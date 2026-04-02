@@ -1346,6 +1346,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             logPreviewSizes("initial-preview-sizes", initialPreviewSizes);
             PreviewSize targetPreviewSize = resolveTargetPreviewSize(initialPreviewSizes);
             if (targetPreviewSize != null) {
+                prioritizePreviewSizesForOpen(initialPreviewSizes, targetPreviewSize);
                 previewWidth = targetPreviewSize.getWidth();
                 previewHeight = targetPreviewSize.getHeight();
                 Log.i(TAG, "Using target preview size " + previewWidth + "x" + previewHeight + " for open");
@@ -1957,6 +1958,39 @@ public class UsbUvcCamera extends CordovaPlugin {
             builder.append(size.getWidth()).append("x").append(size.getHeight());
         }
         Log.i(TAG, label + ": " + builder);
+    }
+
+    private void prioritizePreviewSizesForOpen(List<PreviewSize> sizes, PreviewSize targetPreviewSize) {
+        if (sizes == null || sizes.size() < 2 || targetPreviewSize == null) {
+            return;
+        }
+        sizes.sort((left, right) -> Integer.compare(
+                scorePreviewSizePriority(right, targetPreviewSize),
+                scorePreviewSizePriority(left, targetPreviewSize)
+        ));
+        logPreviewSizes("reprioritized-preview-sizes", sizes);
+    }
+
+    private int scorePreviewSizePriority(PreviewSize size, PreviewSize targetPreviewSize) {
+        if (size == null) {
+            return Integer.MIN_VALUE;
+        }
+        int width = size.getWidth();
+        int height = size.getHeight();
+        int pixels = Math.max(0, width * height);
+        int score = pixels;
+        if (targetPreviewSize != null
+                && width == targetPreviewSize.getWidth()
+                && height == targetPreviewSize.getHeight()) {
+            score += 1000000000;
+        }
+        if (width == requestedPreviewWidth && height == requestedPreviewHeight) {
+            score += 500000000;
+        }
+        if (width == 640 && height == 480) {
+            score -= 100000000;
+        }
+        return score;
     }
 
     private void configureUnderlyingPreviewStream(UVCCamera uvcCamera) {
