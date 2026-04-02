@@ -1717,3 +1717,26 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - il prossimo build dira' se il nero dipendeva dal fatto che il bitmap veniva letto prima di un vero update della `SurfaceTexture`
+
+## 2026-04-02 - Ritorno alla priorita' preview high-res quando la negoziazione e' gia' alta
+
+### Richiesta o problema
+
+- il confronto con il commit `087f3fa` e con il worklog storico mostrava che il path piu' promettente per la qualita' reale era quello in cui `takePhoto()` saltava `captureImage()` quando la preview bassa era gia' negoziata ad alta risoluzione
+- nei test successivi, invece, il backend `captureImage()` ha continuato a restituire `640x480`, aggiungendo complessita' e un possibile downgrade del flusso foto senza produrre dettaglio migliore
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- in `attemptHighResTakePhoto()` e' stato ripristinato il bypass del backend `captureImage()` quando la preview gia' negoziata e':
+  - almeno pari alla size richiesta dall'app
+  - oppure comunque superiore al vecchio limite VGA `640x480`
+- in questo caso il plugin passa direttamente al path preview gia' negoziato, che e' il ramo piu' coerente con il risultato storico validato nel worklog (`1920x1080` sul path preview/TextureView)
+
+### Stato finale
+
+- il plugin torna a privilegiare la preview high-res reale gia' disponibile, invece di insistere su un backend still che su questo totem continua a chiudere a `640x480`
