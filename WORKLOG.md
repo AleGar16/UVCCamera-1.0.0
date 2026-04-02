@@ -1408,6 +1408,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - il prossimo build ci dira' se il problema dei frame raw era semplicemente un mismatch del pixel format richiesto al callback basso UVC
 
+## 2026-04-02 - Apertura preview riallineata alla massima risoluzione reale
+
+### Richiesta o problema
+
+- i log hanno mostrato una situazione incoerente:
+  - preview negoziata bassa `1920x1080`
+  - `TextureView` e bitmap catturato `1920x1080`
+  - ma ultimo frame preview AUSBC ancora `640x480`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il metodo `resolveTargetPreviewSize()` con `preferHighestResolution=true` continuava comunque a privilegiare prima la size richiesta dall'app (`requestedPreviewWidth/requestedPreviewHeight`), che nel flusso attuale tendeva a essere `1280x720`
+- questo puo' inizializzare la pipeline preview/render a una size inferiore, anche se in seguito la negoziazione low-level prova a salire a `1920x1080`
+- ora, quando `preferHighestResolution` e' attivo, il plugin sceglie prima la miglior size disponibile da una ladder discendente (`1920x1080`, `1600x896`, `1280x720`, ecc.) e solo dopo ripiega sulla size richiesta originaria
+
+### Stato finale
+
+- l'apertura camera torna coerente con l'obiettivo "massima qualita'" gia' emerso nel worklog
+- al prossimo test potremo verificare se anche il frame preview alto livello smette di restare a `640x480` quando l'intera pipeline viene aperta direttamente alla size piu' alta disponibile
+
 ## 2026-04-02 - Diagnostica one-shot delle sorgenti foto al momento dello scatto
 
 ### Richiesta o problema
