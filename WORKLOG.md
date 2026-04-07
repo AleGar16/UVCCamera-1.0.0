@@ -2042,3 +2042,52 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - `Smart focus autofocus pulse started, reason=photo-capture ...`
   - `Smart focus lock applied, reason=photo-capture, focus=...`
   - poi solo dopo i log di `Photo source metrics` / `Texture capture metrics`
+
+## 2026-04-07 - Non bloccare il focus a zero dopo il refocus per-foto
+
+### Richiesta o problema
+
+- i log del nuovo refocus per ogni `takePhoto()` hanno mostrato che il ciclo parte correttamente, ma la webcam restituisce ancora:
+  - `Smart focus lock applied, reason=photo-capture, focus=0`
+- questo rende probabile che il plugin stia disattivando l'autofocus e congelando un valore focus non affidabile proprio prima dello scatto
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- durante il ciclo `photo-capture`, se la lettura del focus dopo il pulse autofocus torna `0`, il plugin non forza piu' il passaggio a manuale su quel valore
+- in quel caso considera il dato non affidabile e lascia l'autofocus attivo per lo scatto, invece di bloccare un possibile valore minimo/fittizio
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare, nei casi problematici, una riga tipo:
+  - `Smart focus pulse finished without reliable focus reading; keeping autofocus enabled, reason=photo-capture, reportedFocus=0`
+
+## 2026-04-07 - Retry autofocus interno quando il lock per-foto torna ancora a zero
+
+### Richiesta o problema
+
+- i log successivi hanno mostrato un comportamento misto:
+  - alcuni `photo-capture` chiudono ancora con `focus=0`
+  - altri, pochi secondi dopo, chiudono con `focus=16`
+- quindi il problema non e' assenza di autofocus, ma lock preso in un momento non ancora stabile del ciclo AF
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- se il primo lock del ciclo `photo-capture` torna ancora `0`, il plugin non procede subito allo scatto
+- invece arma automaticamente un nuovo pulse autofocus breve (`900 ms`) e rimanda la cattura
+- il retry avviene solo per lo scatto corrente e solo per un numero limitato di tentativi, cosi' evitiamo loop infiniti
+- se anche dopo i retry il valore resta `0`, allora il plugin ricade sul comportamento prudente: non blocca il focus a zero e lascia AF attivo
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare, nei casi instabili, una riga tipo:
+  - `Smart focus reading still unstable after photo pulse; retrying autofocus before capture ...`
