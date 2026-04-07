@@ -84,6 +84,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int SMART_FOCUS_PHOTO_SETTLE_EXTRA_MS = 120;
     private static final int MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES = 2;
     private static final int PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS = 900;
+    private static final int SMART_FOCUS_LOCK_SAMPLE_COUNT = 3;
+    private static final int SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS = 120;
+    private static final int SMART_FOCUS_LOCK_STABLE_DELTA = 2;
     private static final boolean ENABLE_AUSBC_RESOLUTION_RECOVERY = false;
     private MultiCameraClient cameraClient;
     private MultiCameraClient.Camera currentCamera;
@@ -141,6 +144,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private final Set<String> loggedMissingCameraRequestBooleanMethods = new HashSet<>();
     private List<PreviewSize> currentPreviewSizes = new ArrayList<>();
     private boolean smartFocusEnabled = true;
+    private boolean refocusBeforePhotoEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
     private boolean prePhotoAutoFocusRequested = false;
     private int prePhotoAutoFocusRetryCount = 0;
@@ -149,6 +153,18 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private interface TextureCaptureCallback {
         void onCaptured(String encodedImage);
+    }
+
+    private static final class FocusLockObservation {
+        final int[] samples;
+        final int chosenFocus;
+        final boolean stable;
+
+        FocusLockObservation(int[] samples, int chosenFocus, boolean stable) {
+            this.samples = samples;
+            this.chosenFocus = chosenFocus;
+            this.stable = stable;
+        }
     }
 
     @Override
@@ -1075,6 +1091,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             boolean autoFocus = options != null && options.has("autoFocus") ? options.optBoolean("autoFocus", false) : false;
             int focus = options != null ? clampPercent(options.optInt("focus", 0)) : 0;
             boolean smartFocus = options == null || !options.has("smartFocus") || options.optBoolean("smartFocus", true);
+            boolean refocusBeforePhoto = options == null || !options.has("refocusBeforePhoto") || options.optBoolean("refocusBeforePhoto", true);
             int focusLockDelayMs = options != null ? Math.max(300, options.optInt("focusLockDelayMs", DEFAULT_SMART_FOCUS_LOCK_DELAY_MS)) : DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
             boolean autoExposure = options != null && options.has("autoExposure") ? options.optBoolean("autoExposure", true) : true;
             int exposure = options != null ? clampPercent(options.optInt("exposure", 50)) : 50;
@@ -1082,6 +1099,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             int whiteBalance = options != null ? clampPercent(options.optInt("whiteBalance", 50)) : 50;
 
             smartFocusEnabled = smartFocus;
+            refocusBeforePhotoEnabled = refocusBeforePhoto;
             smartFocusLockDelayMs = focusLockDelayMs;
 
             uvcCamera.setAutoFocus(autoFocus);
@@ -1100,6 +1118,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
             JSONObject result = new JSONObject();
             result.put("smartFocus", smartFocusEnabled);
+            result.put("refocusBeforePhoto", refocusBeforePhotoEnabled);
             result.put("focusLockDelayMs", smartFocusLockDelayMs);
             result.put("autoFocus", autoFocus);
             result.put("focus", autoFocus ? getLastLockedFocus() : focus);
@@ -1694,28 +1713,31 @@ public class UsbUvcCamera extends CordovaPlugin {
                 Log.w(TAG, "Skipping smart focus lock because camera is not opened");
                 return;
             }
-            int lockedFocus = readCurrentFocusPercent(uvcCamera);
-            if (shouldRetryPhotoAutoFocusLock(reason, lockedFocus)) {
+            FocusLockObservation observation = observeFocusForLock(uvcCamera);
+            int lockedFocus = observation.chosenFocus;
+            if (shouldRetryPhotoAutoFocusLock(reason, observation)) {
                 prePhotoAutoFocusRetryCount++;
                 lastSmartFocusLockElapsedMs = SystemClock.elapsedRealtime();
                 Log.i(TAG, "Smart focus reading still unstable after photo pulse; retrying autofocus before capture, retry="
                         + prePhotoAutoFocusRetryCount
                         + ", reportedFocus=" + lockedFocus
+                        + ", samples=" + Arrays.toString(observation.samples)
                         + ", retryDelayMs=" + PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS);
                 mainHandler.post(() -> scheduleSmartAutoFocusLock("photo-capture", PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS));
                 return;
             }
-            if (shouldKeepAutoFocusEnabledAfterPulse(reason, lockedFocus)) {
+            if (shouldKeepAutoFocusEnabledAfterPulse(reason, observation)) {
                 lastSmartFocusLockElapsedMs = SystemClock.elapsedRealtime();
                 Log.i(TAG, "Smart focus pulse finished without reliable focus reading; keeping autofocus enabled, reason="
-                        + reason + ", reportedFocus=" + lockedFocus);
+                        + reason + ", reportedFocus=" + lockedFocus + ", samples=" + Arrays.toString(observation.samples));
                 return;
             }
             uvcCamera.setAutoFocus(false);
             setPercentControlInternal(uvcCamera, lockedFocus, "Focus", "mFocusMin", "mFocusMax");
             persistLockedFocus(lockedFocus);
             lastSmartFocusLockElapsedMs = SystemClock.elapsedRealtime();
-            Log.i(TAG, "Smart focus lock applied, reason=" + reason + ", focus=" + lockedFocus);
+            Log.i(TAG, "Smart focus lock applied, reason=" + reason + ", focus=" + lockedFocus
+                    + ", stable=" + observation.stable + ", samples=" + Arrays.toString(observation.samples));
         } catch (Exception exception) {
             Log.w(TAG, "Unable to lock current autofocus", exception);
         } finally {
@@ -1724,18 +1746,47 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
     }
 
-    private boolean shouldRetryPhotoAutoFocusLock(String reason, int lockedFocus) {
+    private FocusLockObservation observeFocusForLock(UVCCamera uvcCamera) {
+        int[] samples = new int[SMART_FOCUS_LOCK_SAMPLE_COUNT];
+        int chosenFocus = -1;
+        boolean stable = false;
+        int previousFocus = -1;
+        for (int i = 0; i < SMART_FOCUS_LOCK_SAMPLE_COUNT; i++) {
+            int focus = readCurrentFocusPercent(uvcCamera);
+            samples[i] = focus;
+            if (focus > 0) {
+                chosenFocus = focus;
+            }
+            if (previousFocus > 0 && focus > 0 && Math.abs(focus - previousFocus) <= SMART_FOCUS_LOCK_STABLE_DELTA) {
+                stable = true;
+                chosenFocus = focus;
+            }
+            previousFocus = focus;
+            if (i < SMART_FOCUS_LOCK_SAMPLE_COUNT - 1) {
+                SystemClock.sleep(SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS);
+            }
+        }
+        if (chosenFocus < 0) {
+            chosenFocus = getLastLockedFocus();
+        }
+        if (chosenFocus < 0) {
+            chosenFocus = 0;
+        }
+        return new FocusLockObservation(samples, chosenFocus, stable);
+    }
+
+    private boolean shouldRetryPhotoAutoFocusLock(String reason, FocusLockObservation observation) {
         return "photo-capture".equals(reason)
-                && lockedFocus <= 0
+                && (!observation.stable || observation.chosenFocus <= 0)
                 && prePhotoAutoFocusRetryCount < MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES;
     }
 
-    private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, int lockedFocus) {
-        return "photo-capture".equals(reason) && lockedFocus <= 0;
+    private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, FocusLockObservation observation) {
+        return "photo-capture".equals(reason) && observation.chosenFocus <= 0;
     }
 
     private boolean maybePrepareSmartFocusBeforePhoto(int attempt, Runnable retryAction) {
-        if (!smartFocusEnabled || retryAction == null) {
+        if (!smartFocusEnabled || !refocusBeforePhotoEnabled || retryAction == null) {
             return false;
         }
         if (pendingAutoFocusLock != null) {

@@ -2091,3 +2091,29 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 
 - implementato; il prossimo test dovra' mostrare, nei casi instabili, una riga tipo:
   - `Smart focus reading still unstable after photo pulse; retrying autofocus before capture ...`
+
+## 2026-04-07 - Refocus per-foto reso configurabile
+
+### Richiesta o problema
+
+- i test reali sul totem hanno mostrato che il refocus prima di ogni scatto resta desiderabile come comportamento, ma va reso meno sensibile a letture singole instabili
+- il lock basato su una sola lettura poteva oscillare tra `0`, `2`, `4`, `8`, `10`, `12` a seconda del momento esatto in cui veniva fermato l'autofocus
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `README.md`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin mantiene l'opzione `refocusBeforePhoto`, che torna ad essere abilitata di default
+- il refocus per-foto non decide piu' il lock su una sola lettura:
+  - raccoglie una breve finestra di campioni focus
+  - considera stabile il lock solo se vede valori non zero sufficientemente coerenti
+  - se il dato resta instabile, ritenta il pulse autofocus prima dello scatto
+- se serve, `refocusBeforePhoto` puo' comunque essere disattivato esplicitamente via `applyStableCameraProfile()`
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare log con `samples=[...]` e, idealmente, lock `photo-capture` piu' coerenti tra uno scatto e il successivo

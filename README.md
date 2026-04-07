@@ -121,12 +121,23 @@ Puoi configurare la strategia dentro `applyStableCameraProfile()`:
 ```javascript
 navigator.usbUvcCamera.applyStableCameraProfile({
   smartFocus: true,
+  refocusBeforePhoto: true,
   focusLockDelayMs: 1800,
   autoExposure: true,
   autoWhiteBalance: true,
   brightness: 50,
   contrast: 50,
   sharpness: 50
+}, console.log, console.error);
+```
+
+Per il totem, `refocusBeforePhoto` e' di nuovo attivo di default, ma con un lock piu' prudente: il plugin non blocca il focus su una sola lettura, bensi' su una breve finestra di campionamento; se il dato resta instabile, ritenta il pulse autofocus. Se vuoi disattivarlo in un setup diverso:
+
+```javascript
+navigator.usbUvcCamera.applyStableCameraProfile({
+  smartFocus: true,
+  refocusBeforePhoto: false,
+  focusLockDelayMs: 1800
 }, console.log, console.error);
 ```
 
