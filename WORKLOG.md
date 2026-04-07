@@ -2117,3 +2117,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare log con `samples=[...]` e, idealmente, lock `photo-capture` piu' coerenti tra uno scatto e il successivo
+
+## 2026-04-07 - Focus kiosk di sessione: calibrazione una volta, poi riuso stabile
+
+### Richiesta o problema
+
+- i log piu' recenti hanno confermato che il refocus per-foto puo' trovare un valore valido, ma rifarlo a ogni scatto reintroduce instabilita'
+- nel caso d'uso reale il punto camera-soggetto e' sostanzialmente fisso, quindi il comportamento corretto e':
+  - trovare un focus buono
+  - poi riusarlo sugli scatti successivi finche' la geometria non cambia
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin ora mantiene uno stato `sessionFocusSettled`
+- se all'apertura riesce a ripristinare un focus salvato, considera la sessione gia' stabilizzata e non rilancia autofocus su `camera-opened`
+- se durante uno scatto trova finalmente un lock focus valido, marca la sessione come stabilizzata
+- da quel momento `takePhoto()` non rilancia piu' il refocus automatico ad ogni chiamata nella stessa sessione
+- un nuovo `refocus()` manuale o una nuova sessione camera possono comunque ricalibrare il focus
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare:
+  - eventuale refocus/calibrazione sui primi scatti
+  - poi assenza di nuovi `Starting smart focus cycle before photo capture ...` sugli scatti successivi della stessa sessione

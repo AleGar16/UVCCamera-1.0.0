@@ -146,6 +146,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean smartFocusEnabled = true;
     private boolean refocusBeforePhotoEnabled = true;
     private int smartFocusLockDelayMs = DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
+    private boolean sessionFocusSettled = false;
     private boolean prePhotoAutoFocusRequested = false;
     private int prePhotoAutoFocusRetryCount = 0;
     private long pendingAutoFocusLockDueElapsedMs = 0L;
@@ -1539,8 +1540,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                         if (uvcCamera != null) {
                             configureUnderlyingPreviewStream(uvcCamera);
                             applyPreviewLayout();
-                            applyStoredFocusIfAvailable(uvcCamera);
-                            scheduleSmartAutoFocusLock("camera-opened");
+                            boolean restoredFocus = applyStoredFocusIfAvailable(uvcCamera);
+                            if (!restoredFocus) {
+                                scheduleSmartAutoFocusLock("camera-opened");
+                            } else {
+                                Log.i(TAG, "Skipping camera-opened autofocus because stored locked focus was restored");
+                            }
                             logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
@@ -1668,6 +1673,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             loggedPhotoSourceMetrics = false;
         }
         currentPreviewSizes = new ArrayList<>();
+        sessionFocusSettled = false;
         if (resetOpeningFlag) {
             openingCamera = false;
         }
@@ -1735,6 +1741,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             uvcCamera.setAutoFocus(false);
             setPercentControlInternal(uvcCamera, lockedFocus, "Focus", "mFocusMin", "mFocusMax");
             persistLockedFocus(lockedFocus);
+            sessionFocusSettled = true;
             lastSmartFocusLockElapsedMs = SystemClock.elapsedRealtime();
             Log.i(TAG, "Smart focus lock applied, reason=" + reason + ", focus=" + lockedFocus
                     + ", stable=" + observation.stable + ", samples=" + Arrays.toString(observation.samples));
@@ -1789,6 +1796,9 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (!smartFocusEnabled || !refocusBeforePhotoEnabled || retryAction == null) {
             return false;
         }
+        if (sessionFocusSettled) {
+            return false;
+        }
         if (pendingAutoFocusLock != null) {
             prePhotoAutoFocusRequested = true;
             return maybeDelayPhotoUntilSmartFocusLock(attempt, retryAction);
@@ -1838,17 +1848,20 @@ public class UsbUvcCamera extends CordovaPlugin {
         return clampPercent(focus);
     }
 
-    private void applyStoredFocusIfAvailable(UVCCamera uvcCamera) {
+    private boolean applyStoredFocusIfAvailable(UVCCamera uvcCamera) {
         int savedFocus = getLastLockedFocus();
         if (savedFocus < 0 || uvcCamera == null) {
-            return;
+            return false;
         }
         try {
             uvcCamera.setAutoFocus(false);
             setPercentControlInternal(uvcCamera, savedFocus, "Focus", "mFocusMin", "mFocusMax");
+            sessionFocusSettled = true;
             Log.i(TAG, "Applied stored locked focus on open, focus=" + savedFocus);
+            return true;
         } catch (Exception exception) {
             Log.w(TAG, "Unable to apply stored locked focus on open", exception);
+            return false;
         }
     }
 
