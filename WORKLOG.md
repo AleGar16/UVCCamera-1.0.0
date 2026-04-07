@@ -1988,3 +1988,57 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' dire se gli open falliti con `err=-99` si riducono o spariscono
+
+## 2026-04-02 - Attesa del lock autofocus prima del primo scatto
+
+### Richiesta o problema
+
+- dopo aver portato il frame preview reale a `1920x1080`, il dubbio residuo sul totem e' diventato il fuoco:
+  - la foto sembra qualitativa come risoluzione
+  - ma il primo scatto puo' partire mentre il ciclo `autofocus -> lock` avviato su `OPENED` e' ancora in corso
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin ora traccia quando il lock smart focus e' ancora pendente
+- se `takePhoto()` arriva durante quella finestra, non cattura subito il `TextureView`, ma aspetta il completamento del lock autofocus e poi ritenta
+- in pratica:
+  - all'avvio del pulse autofocus salva l'istante previsto del lock
+  - al lock effettivo azzera lo stato pending
+  - prima dello scatto controlla se il lock e' ancora in sospeso e, se serve, ritarda lo scatto di quanto manca piu' un piccolo margine
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare una riga tipo `Delaying photo capture until smart focus lock completes ...` sui primi scatti molto rapidi dopo `OPENED`
+
+## 2026-04-07 - Refocus esplicito prima di ogni richiesta takePhoto
+
+### Richiesta o problema
+
+- il controllo precedente proteggeva bene il primo scatto troppo vicino a `OPENED`, ma non forzava ancora una nuova messa a fuoco ad ogni foto
+- sul totem il sintomo percepito e' rimasto: foto Full HD ma non sempre davvero a fuoco
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `takePhoto()` ora arma un ciclo smart focus dedicato per ogni richiesta di scatto:
+  - se c'e' gia' un autofocus pending, aspetta quel lock
+  - se non c'e', avvia un nuovo pulse autofocus con reason `photo-capture`
+  - solo dopo il lock riprende il ramo reale di cattura, sia preview-path sia high-res backend
+- lo stato del refocus per-scattto viene azzerato alla chiusura della richiesta foto, sia in successo sia in errore
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare log tipo:
+  - `Starting smart focus cycle before photo capture ...`
+  - `Smart focus autofocus pulse started, reason=photo-capture ...`
+  - `Smart focus lock applied, reason=photo-capture, focus=...`
+  - poi solo dopo i log di `Photo source metrics` / `Texture capture metrics`
