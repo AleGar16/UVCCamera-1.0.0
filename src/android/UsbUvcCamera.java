@@ -84,6 +84,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_OPEN_RETRIES = 2;
     private static final int SMART_FOCUS_PHOTO_SETTLE_EXTRA_MS = 120;
     private static final int MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES = 2;
+    private static final int MAX_BLIND_AUTO_FOCUS_RETRIES = 1;
     private static final int PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS = 900;
     private static final int SMART_FOCUS_LOCK_SAMPLE_COUNT = 3;
     private static final int SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS = 120;
@@ -1778,13 +1779,14 @@ public class UsbUvcCamera extends CordovaPlugin {
             int lockedFocus = observation.chosenFocus;
             if (shouldRetryPhotoAutoFocusLock(reason, observation)) {
                 prePhotoAutoFocusRetryCount++;
+                int retryDelayMs = resolvePhotoFocusRetryDelayMs(observation);
                 lastSmartFocusLockElapsedMs = SystemClock.elapsedRealtime();
                 Log.i(TAG, "Smart focus reading still unstable after photo pulse; retrying autofocus before capture, retry="
                         + prePhotoAutoFocusRetryCount
                         + ", reportedFocus=" + lockedFocus
                         + ", samples=" + Arrays.toString(observation.samples)
-                        + ", retryDelayMs=" + PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS);
-                mainHandler.post(() -> scheduleSmartAutoFocusLock("photo-capture", PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS));
+                        + ", retryDelayMs=" + retryDelayMs);
+                mainHandler.post(() -> scheduleSmartAutoFocusLock("photo-capture", retryDelayMs));
                 return;
             }
             if (shouldKeepAutoFocusEnabledAfterPulse(reason, observation)) {
@@ -1843,11 +1845,19 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private boolean shouldRetryPhotoAutoFocusLock(String reason, FocusLockObservation observation) {
         if (isFocusReadbackUnavailable(observation)) {
-            return false;
+            return "photo-capture".equals(reason)
+                    && !sessionFocusSettled
+                    && prePhotoAutoFocusRetryCount < MAX_BLIND_AUTO_FOCUS_RETRIES;
         }
         return "photo-capture".equals(reason)
                 && (!observation.stable || observation.chosenFocus <= 0)
                 && prePhotoAutoFocusRetryCount < MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES;
+    }
+
+    private int resolvePhotoFocusRetryDelayMs(FocusLockObservation observation) {
+        return isFocusReadbackUnavailable(observation)
+                ? BLIND_AUTO_FOCUS_SETTLE_MS
+                : PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS;
     }
 
     private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, FocusLockObservation observation) {
