@@ -10,6 +10,38 @@ Formato usato:
 - motivo tecnico
 - stato
 
+## 2026-04-07
+
+### 0m. Crash nativo in apertura camera dentro `UVCStatusCallback`
+
+- Richiesta/problema:
+  i log del 2026-04-07 hanno mostrato un abort ART in apertura camera su `arm64-v8a`, con stack nativo su `UVCStatusCallback::uvc_status_callback(...)`, `uvc_process_control_status(...)` e `UVCCamera::updateSaturationLimit(...)`, piu' il messaggio `attempting to detach while still running code`.
+- Modifica fatta:
+  e' stato rigenerato il vendored `src/android/libs/libuvc-release.aar` del plugin partendo dalla sorgente locale `AndroidUSBCamera-src`, dopo aver corretto `libuvc/src/main/jni/UVCCamera/UVCStatusCallback.cpp` in modo che il callback status usi lo stesso schema del button callback:
+  verifica `JavaVM->GetEnv(...)`, fa `AttachCurrentThread(...)` solo se necessario e chiama `DetachCurrentThread()` solo se l'attach e' stato eseguito in quel callback.
+- Motivo tecnico:
+  il callback status faceva `AttachCurrentThread` e `DetachCurrentThread` incondizionatamente ad ogni status/control transfer; durante l'open camera questo si incrociava con le query dei controlli UVC e poteva far abortire ART quando il thread nativo veniva detachato in uno stato non sicuro.
+- Stato:
+  `src/android/libs/libuvc-release.aar` aggiornato con la `jni/arm64-v8a/libUVCCamera.so` nuova; resta da validare sul device reale che l'apertura camera non cada piu' nel crash nativo osservato il 2026-04-07.
+
+## 2026-04-08
+
+### 0m. Dopo il fix nativo: evitare `focus=0` ripristinato e ridurre jank nello scatto
+
+- Richiesta/problema:
+  i log del 2026-04-07 12:53 mostravano che la camera ora si apre senza crash, ma il plugin:
+  ripristinava `Applied stored locked focus on open, focus=0`, saltando l'autofocus iniziale con un valore non affidabile;
+  inoltre continuava a fare foto via `TextureView.getBitmap(...)` anche quando il preview frame disponibile era gia' `NV21 1920x1080`, con jank evidente (`Skipped 64 frames`).
+- Modifica fatta:
+  in `src/android/UsbUvcCamera.java`:
+  i focus persistiti `<= 0` non vengono piu' considerati validi, non vengono salvati e vengono rimossi dal `SharedPreferences`;
+  lo scatto ora preferisce il frame raw preview gia' disponibile quando e' `NV21`, non proviene dal callback underlying e ha gia' almeno la size negoziata per la foto, evitando in quel caso il passaggio da `TextureView.getBitmap(...)`.
+- Motivo tecnico:
+  `focus=0` nel flusso smart focus era gia' trattato come lettura non affidabile, quindi riusarlo come lock persistito creava una falsa sessione "stabilizzata";
+  usare direttamente il frame `NV21` 1920x1080 evita lavoro pesante sul main thread mantenendo la stessa risoluzione effettiva gia' negoziata in preview.
+- Stato:
+  patch applicata nel codice Java del plugin; resta da validare su device reale che al prossimo open non compaia piu' il restore `focus=0` e che durante gli scatti il percorso texture non venga piu' usato quando il frame raw e' gia' high-res.
+
 ## 2026-04-01
 
 ### 0m. Guardia lifecycle durante `updateResolution(...)` di AUSBC

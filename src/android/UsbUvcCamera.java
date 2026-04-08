@@ -134,6 +134,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private boolean loggedBackendApiSnapshot = false;
     private boolean loggedAdjustedPreviewFrameSize = false;
     private boolean loggedTextureCaptureMetrics = false;
+    private boolean loggedRawPreviewPhotoCaptureMetrics = false;
     private boolean loggedPhotoSourceMetrics = false;
     private boolean ausbcResolutionRecoveryAttempted = false;
     private boolean ausbcResolutionRecoveryInProgress = false;
@@ -636,6 +637,18 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private void capturePreviewTextureOrRawFallback(int textureCaptureWidth, int textureCaptureHeight,
             byte[] frameCopy, PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
+        if (shouldPreferRawPreviewFrameForPhoto(textureCaptureWidth, textureCaptureHeight, frameSize, frameFromUnderlying, frameFormat)) {
+            if (!loggedRawPreviewPhotoCaptureMetrics) {
+                loggedRawPreviewPhotoCaptureMetrics = true;
+                Log.i(TAG, "Using raw preview frame directly for photo capture, frame="
+                        + frameSize.getWidth() + "x" + frameSize.getHeight()
+                        + ", target=" + textureCaptureWidth + "x" + textureCaptureHeight
+                        + ", frameFormat=" + frameFormat
+                        + ", fromUnderlying=" + frameFromUnderlying);
+            }
+            encodeRawPreviewFrameFallback(frameCopy, frameSize, frameFromUnderlying, frameFormat);
+            return;
+        }
         capturePreviewTextureAsBase64Async(textureCaptureWidth, textureCaptureHeight, textureEncodedImage -> {
             if (textureEncodedImage != null) {
                 clearPhotoTimeout();
@@ -649,6 +662,17 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             encodeRawPreviewFrameFallback(frameCopy, frameSize, frameFromUnderlying, frameFormat);
         });
+    }
+
+    private boolean shouldPreferRawPreviewFrameForPhoto(int targetWidth, int targetHeight,
+            PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
+        if (frameSize == null || targetWidth <= 0 || targetHeight <= 0) {
+            return false;
+        }
+        if (frameFromUnderlying || !"nv21".equals(frameFormat)) {
+            return false;
+        }
+        return frameSize.getWidth() >= targetWidth && frameSize.getHeight() >= targetHeight;
     }
 
     private void encodeRawPreviewFrameFallback(byte[] frameCopy, PreviewSize frameSize, boolean frameFromUnderlying, String frameFormat) {
@@ -1850,7 +1874,11 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private boolean applyStoredFocusIfAvailable(UVCCamera uvcCamera) {
         int savedFocus = getLastLockedFocus();
-        if (savedFocus < 0 || uvcCamera == null) {
+        if (savedFocus <= 0 || uvcCamera == null) {
+            if (savedFocus == 0) {
+                clearPersistedLockedFocus();
+                Log.i(TAG, "Ignoring persisted locked focus because saved value is 0");
+            }
             return false;
         }
         try {
@@ -1868,9 +1896,24 @@ public class UsbUvcCamera extends CordovaPlugin {
     private void persistLockedFocus(int focusPercent) {
         try {
             SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            preferences.edit().putInt(PREF_LAST_LOCKED_FOCUS, clampPercent(focusPercent)).apply();
+            int clampedFocus = clampPercent(focusPercent);
+            if (clampedFocus <= 0) {
+                preferences.edit().remove(PREF_LAST_LOCKED_FOCUS).apply();
+                Log.i(TAG, "Skipping persisted locked focus because value is not reliable: " + clampedFocus);
+                return;
+            }
+            preferences.edit().putInt(PREF_LAST_LOCKED_FOCUS, clampedFocus).apply();
         } catch (Exception exception) {
             Log.w(TAG, "Unable to persist locked focus", exception);
+        }
+    }
+
+    private void clearPersistedLockedFocus() {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            preferences.edit().remove(PREF_LAST_LOCKED_FOCUS).apply();
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to clear persisted locked focus", exception);
         }
     }
 
@@ -1880,7 +1923,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             if (!preferences.contains(PREF_LAST_LOCKED_FOCUS)) {
                 return -1;
             }
-            return clampPercent(preferences.getInt(PREF_LAST_LOCKED_FOCUS, 50));
+            int savedFocus = clampPercent(preferences.getInt(PREF_LAST_LOCKED_FOCUS, 50));
+            if (savedFocus <= 0) {
+                preferences.edit().remove(PREF_LAST_LOCKED_FOCUS).apply();
+                return -1;
+            }
+            return savedFocus;
         } catch (Exception exception) {
             Log.w(TAG, "Unable to read persisted locked focus", exception);
             return -1;
