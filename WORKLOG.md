@@ -2288,3 +2288,32 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - log `Focus telemetry appears unavailable for this camera; using blind autofocus settle strategy`
   - niente piu' catene lunghe di retry `samples=[0, 0, 0]`
   - uno scatto che parte dopo un singolo tempo di assestamento piu' lungo
+
+## 2026-04-08 - Race tra fine autofocus e inizio scatto
+
+### Richiesta o problema
+
+- i log successivi hanno mostrato che, anche con `blind autofocus settle`, lo scatto poteva ancora partire troppo presto:
+  - autofocus foto iniziato alle `12:51:31.848`
+  - cattura partita alle `12:51:34.584`
+  - chiusura del ciclo autofocus solo alle `12:51:34.718`
+- quindi la foto partiva circa 130 ms prima della fine reale del settle focus
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `maybeDelayPhotoUntilSmartFocusLock(...)` prima decideva in base alla sola scadenza teorica (`pendingAutoFocusLockDueElapsedMs`)
+- ma il lock reale continua anche dopo quella scadenza, perche' il task autofocus esegue ancora letture e logica finale in background
+- ora, se il tempo teorico e' scaduto ma `pendingAutoFocusLock` e' ancora attivo, il plugin non scatta:
+  - aspetta ancora `TAKE_PHOTO_RETRY_DELAY_MS`
+  - e riprova finche' il lock autofocus non e' davvero finito
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare:
+  - eventuale log `Smart focus lock due time elapsed but lock is still running; delaying photo capture...`
+  - assenza di casi in cui `Using raw preview frame directly for photo capture...` compaia prima della chiusura del ciclo autofocus

@@ -1880,7 +1880,15 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
         long remainingMs = pendingAutoFocusLockDueElapsedMs - SystemClock.elapsedRealtime();
         if (remainingMs <= 0L) {
-            return false;
+            if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
+                Log.w(TAG, "Smart focus lock is still running after max retries; proceeding without extra wait");
+                return false;
+            }
+            long delayMs = TAKE_PHOTO_RETRY_DELAY_MS;
+            Log.i(TAG, "Smart focus lock due time elapsed but lock is still running; delaying photo capture, attempt="
+                    + attempt + ", delayMs=" + delayMs);
+            mainHandler.postDelayed(retryAction, delayMs);
+            return true;
         }
         if (attempt >= MAX_TAKE_PHOTO_ATTEMPTS) {
             Log.w(TAG, "Smart focus lock still pending before photo after max retries; proceeding without extra wait");
