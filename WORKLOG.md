@@ -2342,3 +2342,27 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - implementato; il prossimo test dovra' mostrare:
   - assenza di lock palesemente peggiorativi come `focus=2` con campioni `samples=[6, 6, 2]`
   - assenza del percorso `Smart focus lock is still running after max retries; proceeding without extra wait` nei casi normali
+
+## 2026-04-08 - Primo scatto quality-first anche senza telemetria focus
+
+### Richiesta o problema
+
+- dai log piu' recenti il primo scatto della sessione restava spesso nel caso:
+  - `samples=[0, 0, 0]`
+  - un solo ciclo blind autofocus
+  - poi scatto immediato
+- gli scatti successivi invece iniziavano piu' spesso a produrre letture focus non zero
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- quando la telemetria focus e' assente (`samples` tutti a zero), il plugin ora concede un secondo ciclo completo di blind autofocus prima di scattare, ma solo se la sessione non ha ancora trovato un lock focus affidabile
+- il retry blind usa lo stesso tempo di assestamento lungo (`BLIND_AUTO_FOCUS_SETTLE_MS`), quindi il primo scatto favorisce la qualita' rispetto alla rapidita'
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare, nei casi `samples=[0, 0, 0]`, un secondo ciclo autofocus con `retryDelayMs=2600` prima dello scatto
