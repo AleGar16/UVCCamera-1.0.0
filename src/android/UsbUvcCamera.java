@@ -464,7 +464,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
-        if (maybePrepareSmartFocusBeforePhoto(attempt, () -> attemptHighResTakePhoto(photoFile, attempt + 1))) {
+        if (maybePrepareSmartFocusBeforePhoto(attempt, () -> attemptHighResTakePhoto(photoFile, attempt))) {
             return;
         }
 
@@ -1811,6 +1811,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private FocusLockObservation observeFocusForLock(UVCCamera uvcCamera) {
         int[] samples = new int[SMART_FOCUS_LOCK_SAMPLE_COUNT];
         int chosenFocus = -1;
+        int stableFocusCandidate = -1;
         boolean stable = false;
         int previousFocus = -1;
         for (int i = 0; i < SMART_FOCUS_LOCK_SAMPLE_COUNT; i++) {
@@ -1821,12 +1822,15 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             if (previousFocus > 0 && focus > 0 && Math.abs(focus - previousFocus) <= SMART_FOCUS_LOCK_STABLE_DELTA) {
                 stable = true;
-                chosenFocus = focus;
+                stableFocusCandidate = Math.max(previousFocus, focus);
             }
             previousFocus = focus;
             if (i < SMART_FOCUS_LOCK_SAMPLE_COUNT - 1) {
                 SystemClock.sleep(SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS);
             }
+        }
+        if (stableFocusCandidate > 0) {
+            chosenFocus = stableFocusCandidate;
         }
         if (chosenFocus < 0) {
             chosenFocus = getLastLockedFocus();
