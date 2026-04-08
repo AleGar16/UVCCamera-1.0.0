@@ -83,9 +83,10 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int OPEN_AFTER_RELEASE_COOLDOWN_MS = 350;
     private static final int MAX_OPEN_RETRIES = 2;
     private static final int SMART_FOCUS_PHOTO_SETTLE_EXTRA_MS = 120;
-    private static final int MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES = 2;
+    private static final int MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES = 3;
     private static final int MAX_BLIND_AUTO_FOCUS_RETRIES = 1;
     private static final int PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS = 900;
+    private static final int FOCUS_SIGNAL_RECOVERY_RETRY_DELAY_MS = 1400;
     private static final int SMART_FOCUS_LOCK_SAMPLE_COUNT = 3;
     private static final int SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS = 120;
     private static final int SMART_FOCUS_LOCK_STABLE_DELTA = 2;
@@ -1855,9 +1856,13 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private int resolvePhotoFocusRetryDelayMs(FocusLockObservation observation) {
-        return isFocusReadbackUnavailable(observation)
-                ? BLIND_AUTO_FOCUS_SETTLE_MS
-                : PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS;
+        if (isFocusReadbackUnavailable(observation)) {
+            return BLIND_AUTO_FOCUS_SETTLE_MS;
+        }
+        if (observation != null && observation.chosenFocus > 0) {
+            return FOCUS_SIGNAL_RECOVERY_RETRY_DELAY_MS;
+        }
+        return PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS;
     }
 
     private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, FocusLockObservation observation) {
