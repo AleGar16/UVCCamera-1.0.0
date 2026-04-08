@@ -69,6 +69,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final String PREFS_NAME = "UsbUvcCameraPrefs";
     private static final String PREF_LAST_LOCKED_FOCUS = "lastLockedFocus";
     private static final int DEFAULT_SMART_FOCUS_LOCK_DELAY_MS = 1800;
+    private static final int BLIND_AUTO_FOCUS_SETTLE_MS = 2600;
     private static final int UVC_EXPOSURE_MODE_MANUAL = 1;
     private static final int UVC_EXPOSURE_MODE_AUTO = 2;
     private static final int MAX_TAKE_PHOTO_ATTEMPTS = 6;
@@ -153,6 +154,8 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int prePhotoAutoFocusRetryCount = 0;
     private long pendingAutoFocusLockDueElapsedMs = 0L;
     private long lastSmartFocusLockElapsedMs = 0L;
+    private boolean focusReadbackUnavailable = false;
+    private boolean loggedFocusReadbackUnavailable = false;
 
     private interface TextureCaptureCallback {
         void onCaptured(String encodedImage);
@@ -1720,6 +1723,8 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
         currentPreviewSizes = new ArrayList<>();
         sessionFocusSettled = false;
+        focusReadbackUnavailable = false;
+        loggedFocusReadbackUnavailable = false;
         if (resetOpeningFlag) {
             openingCamera = false;
         }
@@ -1736,6 +1741,9 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
         int effectiveLockDelayMs = Math.max(300, lockDelayMs);
+        if ("photo-capture".equals(reason) && focusReadbackUnavailable) {
+            effectiveLockDelayMs = Math.max(effectiveLockDelayMs, BLIND_AUTO_FOCUS_SETTLE_MS);
+        }
         pendingAutoFocusLockDueElapsedMs = SystemClock.elapsedRealtime() + effectiveLockDelayMs;
         pendingAutoFocusLock = () -> cordova.getThreadPool().execute(() -> lockCurrentAutoFocus(reason));
         try {
@@ -1766,6 +1774,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 return;
             }
             FocusLockObservation observation = observeFocusForLock(uvcCamera);
+            updateFocusReadbackAvailability(observation);
             int lockedFocus = observation.chosenFocus;
             if (shouldRetryPhotoAutoFocusLock(reason, observation)) {
                 prePhotoAutoFocusRetryCount++;
@@ -1829,13 +1838,16 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean shouldRetryPhotoAutoFocusLock(String reason, FocusLockObservation observation) {
+        if (isFocusReadbackUnavailable(observation)) {
+            return false;
+        }
         return "photo-capture".equals(reason)
                 && (!observation.stable || observation.chosenFocus <= 0)
                 && prePhotoAutoFocusRetryCount < MAX_PRE_PHOTO_AUTO_FOCUS_RETRIES;
     }
 
     private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, FocusLockObservation observation) {
-        return observation.chosenFocus <= 0 || !observation.stable;
+        return isFocusReadbackUnavailable(observation) || observation.chosenFocus <= 0 || !observation.stable;
     }
 
     private boolean maybePrepareSmartFocusBeforePhoto(int attempt, Runnable retryAction) {
@@ -1849,11 +1861,17 @@ public class UsbUvcCamera extends CordovaPlugin {
         if (!prePhotoAutoFocusRequested) {
             prePhotoAutoFocusRequested = true;
             Log.i(TAG, "Starting smart focus cycle before photo capture, attempt="
-                    + attempt + ", lockDelayMs=" + smartFocusLockDelayMs);
-            scheduleSmartAutoFocusLock("photo-capture");
+                    + attempt + ", lockDelayMs=" + resolvePhotoFocusLockDelayMs());
+            scheduleSmartAutoFocusLock("photo-capture", resolvePhotoFocusLockDelayMs());
             return maybeDelayPhotoUntilSmartFocusLock(attempt, retryAction);
         }
         return false;
+    }
+
+    private int resolvePhotoFocusLockDelayMs() {
+        return focusReadbackUnavailable
+                ? Math.max(smartFocusLockDelayMs, BLIND_AUTO_FOCUS_SETTLE_MS)
+                : smartFocusLockDelayMs;
     }
 
     private boolean maybeDelayPhotoUntilSmartFocusLock(int attempt, Runnable retryAction) {
@@ -1889,6 +1907,30 @@ public class UsbUvcCamera extends CordovaPlugin {
             focus = 50;
         }
         return clampPercent(focus);
+    }
+
+    private void updateFocusReadbackAvailability(FocusLockObservation observation) {
+        if (!isFocusReadbackUnavailable(observation)) {
+            focusReadbackUnavailable = false;
+            return;
+        }
+        focusReadbackUnavailable = true;
+        if (!loggedFocusReadbackUnavailable) {
+            loggedFocusReadbackUnavailable = true;
+            Log.i(TAG, "Focus telemetry appears unavailable for this camera; using blind autofocus settle strategy");
+        }
+    }
+
+    private boolean isFocusReadbackUnavailable(FocusLockObservation observation) {
+        if (observation == null || observation.samples == null || observation.samples.length == 0) {
+            return false;
+        }
+        for (int sample : observation.samples) {
+            if (sample > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean applyStoredFocusIfAvailable(UVCCamera uvcCamera) {
