@@ -2366,3 +2366,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare, nei casi `samples=[0, 0, 0]`, un secondo ciclo autofocus con `retryDelayMs=2600` prima dello scatto
+
+## 2026-04-08 - Piu' pazienza sui segnali focus deboli ma reali
+
+### Richiesta o problema
+
+- gli ultimi log hanno mostrato casi in cui il focus non era piu' zero, ma i campioni restavano degradanti o poco stabili:
+  - `samples=[12, 6, 2]`
+  - `samples=[0, 12, 8]`
+  - `samples=[12, 6, 0]`
+- in questi casi il plugin stava gia' vedendo un segnale reale, ma il tempo di recupero poteva essere ancora troppo aggressivo per privilegiare davvero la qualita'
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- aumentato a `3` il numero massimo di retry autofocus per i casi con telemetria focus disponibile ma ancora instabile
+- introdotto un retry delay piu' lungo (`FOCUS_SIGNAL_RECOVERY_RETRY_DELAY_MS = 1400`) quando il plugin vede gia' un `chosenFocus > 0`
+- la logica ora distingue meglio tre scenari:
+  - telemetria assente: retry blind lungo
+  - telemetria presente ma focus ancora instabile: retry intermedio piu' prudente
+  - focus stabile: lock e scatto
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare, nei casi con `chosenFocus > 0` ma non stabile, retry con `retryDelayMs=1400` e piu' probabilita' di arrivare a un lock valido prima dello scatto
