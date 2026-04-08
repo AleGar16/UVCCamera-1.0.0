@@ -2444,3 +2444,24 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il primo scatto dopo `setFocus(...)` non dovrebbe piu' partire mentre il focus manuale sta ancora assestandosi, e i log attesi sono `Manual focus applied...` seguito, se necessario, da `Manual focus settle still in progress; delaying photo capture...`
+
+## 2026-04-08 - Preferenza al backend still JPEG per evitare ricompressione del plugin
+
+### Richiesta o problema
+
+- l'utente ha chiesto di evitare la ricompressione introdotta dal percorso `NV21 -> JPEG -> Base64`, mantenendo comunque il rilascio della foto come stringa Base64
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- il plugin non salta piu' automaticamente `captureImage` solo perche' il preview stream e' gia' ad alta risoluzione
+- adesso prova sempre prima il backend still-photo nativo, che restituisce il file JPEG prodotto dal backend direttamente come Base64 senza ricomprimerlo nel plugin
+- il percorso preview/raw resta come fallback di compatibilita' solo se il backend non e' disponibile o fallisce
+
+### Stato finale
+
+- implementato; nei casi normali la foto Base64 dovrebbe ora provenire dal backend `captureImage` e non dalla ricodifica `YuvImage.compressToJpeg(...)`

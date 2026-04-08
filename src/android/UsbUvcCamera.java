@@ -476,19 +476,13 @@ public class UsbUvcCamera extends CordovaPlugin {
             return;
         }
 
+        ensureHighResPhotoCaptureBackend();
+        HighResPhotoCaptureBackend backend = highResPhotoCaptureBackend;
         int[] negotiatedPreviewSize = getNegotiatedPreviewSize();
-        if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
-            int negotiatedPixels = negotiatedPreviewSize[0] * negotiatedPreviewSize[1];
-            int requestedPixels = Math.max(1, requestedPreviewWidth) * Math.max(1, requestedPreviewHeight);
-            if (negotiatedPixels >= requestedPixels || negotiatedPixels > (640 * 480)) {
-                Log.i(TAG, "Skipping captureImage backend because negotiated preview stream is already high-res: "
-                        + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
-                mainHandler.post(() -> {
-                    schedulePhotoTimeout();
-                    attemptTakePhoto(photoFile, 1);
-                });
-                return;
-            }
+        if (backend == null || currentDevice == null || !backend.supportsDevice(currentDevice)) {
+            Log.w(TAG, "No high-res photo backend available, falling back to preview frame");
+            attemptTakePhoto(photoFile, 1);
+            return;
         }
 
         if (photoFile.exists()) {
@@ -496,12 +490,9 @@ public class UsbUvcCamera extends CordovaPlugin {
             photoFile.delete();
         }
 
-        ensureHighResPhotoCaptureBackend();
-        HighResPhotoCaptureBackend backend = highResPhotoCaptureBackend;
-        if (backend == null || currentDevice == null || !backend.supportsDevice(currentDevice)) {
-            Log.w(TAG, "No high-res photo backend available, falling back to preview frame");
-            attemptTakePhoto(photoFile, 1);
-            return;
+        if (negotiatedPreviewSize[0] > 0 && negotiatedPreviewSize[1] > 0) {
+            Log.i(TAG, "Preferring captureImage backend for still-photo quality even though negotiated preview is high-res: "
+                    + negotiatedPreviewSize[0] + "x" + negotiatedPreviewSize[1]);
         }
 
         int[] preferredStillCaptureSize = resolvePreferredStillCaptureSize(negotiatedPreviewSize);
