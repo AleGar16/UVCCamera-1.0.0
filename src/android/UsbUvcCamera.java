@@ -68,6 +68,10 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int STABLE_CAPTURE_HEIGHT = 720;
     private static final String PREFS_NAME = "UsbUvcCameraPrefs";
     private static final String PREF_LAST_LOCKED_FOCUS = "lastLockedFocus";
+    private static final String PREF_FOCUS_MODE = "focusMode";
+    private static final String PREF_MANUAL_FOCUS = "manualFocus";
+    private static final String FOCUS_MODE_AUTO = "auto";
+    private static final String FOCUS_MODE_MANUAL = "manual";
     private static final int DEFAULT_SMART_FOCUS_LOCK_DELAY_MS = 1800;
     private static final int BLIND_AUTO_FOCUS_SETTLE_MS = 2600;
     private static final int UVC_EXPOSURE_MODE_MANUAL = 1;
@@ -1132,6 +1136,7 @@ public class UsbUvcCamera extends CordovaPlugin {
             JSONObject options = args.optJSONObject(0);
             boolean autoFocus = options != null && options.has("autoFocus") ? options.optBoolean("autoFocus", false) : false;
             int focus = options != null ? clampPercent(options.optInt("focus", 0)) : 0;
+            String focusMode = options != null ? options.optString("focusMode", autoFocus ? FOCUS_MODE_AUTO : FOCUS_MODE_MANUAL) : (autoFocus ? FOCUS_MODE_AUTO : FOCUS_MODE_MANUAL);
             boolean smartFocus = options == null || !options.has("smartFocus") || options.optBoolean("smartFocus", true);
             boolean refocusBeforePhoto = options == null || !options.has("refocusBeforePhoto") || options.optBoolean("refocusBeforePhoto", true);
             int focusLockDelayMs = options != null ? Math.max(300, options.optInt("focusLockDelayMs", DEFAULT_SMART_FOCUS_LOCK_DELAY_MS)) : DEFAULT_SMART_FOCUS_LOCK_DELAY_MS;
@@ -1143,11 +1148,18 @@ public class UsbUvcCamera extends CordovaPlugin {
             smartFocusEnabled = smartFocus;
             refocusBeforePhotoEnabled = refocusBeforePhoto;
             smartFocusLockDelayMs = focusLockDelayMs;
-
-            uvcCamera.setAutoFocus(autoFocus);
-            if (!autoFocus) {
-                uvcCamera.setFocus(focus);
-                persistLockedFocus(focus);
+            boolean manualFocusMode = FOCUS_MODE_MANUAL.equalsIgnoreCase(focusMode) || !autoFocus;
+            if (manualFocusMode) {
+                int manualFocus = focus > 0 ? focus : getPersistedManualFocus();
+                if (manualFocus > 0) {
+                    applyManualFocus(uvcCamera, manualFocus, focus > 0);
+                } else {
+                    persistFocusMode(FOCUS_MODE_MANUAL);
+                    uvcCamera.setAutoFocus(false);
+                }
+            } else {
+                persistFocusMode(FOCUS_MODE_AUTO);
+                uvcCamera.setAutoFocus(true);
             }
             setAutoExposureInternal(uvcCamera, autoExposure);
             if (!autoExposure) {
@@ -1162,8 +1174,9 @@ public class UsbUvcCamera extends CordovaPlugin {
             result.put("smartFocus", smartFocusEnabled);
             result.put("refocusBeforePhoto", refocusBeforePhotoEnabled);
             result.put("focusLockDelayMs", smartFocusLockDelayMs);
-            result.put("autoFocus", autoFocus);
-            result.put("focus", autoFocus ? getLastLockedFocus() : focus);
+            result.put("autoFocus", !manualFocusMode);
+            result.put("focusMode", manualFocusMode ? FOCUS_MODE_MANUAL : FOCUS_MODE_AUTO);
+            result.put("focus", manualFocusMode ? getPersistedManualFocus() : getLastLockedFocus());
             callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "applyStableCameraProfile failed", exception);
@@ -1581,11 +1594,16 @@ public class UsbUvcCamera extends CordovaPlugin {
                         if (uvcCamera != null) {
                             configureUnderlyingPreviewStream(uvcCamera);
                             applyPreviewLayout();
-                            boolean restoredFocus = applyStoredFocusIfAvailable(uvcCamera);
-                            if (restoredFocus) {
-                                Log.i(TAG, "Stored locked focus restored as initial hint; running autofocus refinement for image quality");
+                            boolean manualFocusApplied = applyManualFocusIfConfigured(uvcCamera);
+                            if (manualFocusApplied) {
+                                Log.i(TAG, "Manual focus mode active on open; skipping autofocus refinement");
+                            } else {
+                                boolean restoredFocus = applyStoredFocusIfAvailable(uvcCamera);
+                                if (restoredFocus) {
+                                    Log.i(TAG, "Stored locked focus restored as initial hint; running autofocus refinement for image quality");
+                                }
+                                scheduleSmartAutoFocusLock("camera-opened");
                             }
-                            scheduleSmartAutoFocusLock("camera-opened");
                             logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
@@ -1870,6 +1888,9 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean maybePrepareSmartFocusBeforePhoto(int attempt, Runnable retryAction) {
+        if (isEffectiveManualFocusMode()) {
+            return false;
+        }
         if (!smartFocusEnabled || !refocusBeforePhotoEnabled || retryAction == null) {
             return false;
         }
@@ -1977,6 +1998,103 @@ public class UsbUvcCamera extends CordovaPlugin {
         } catch (Exception exception) {
             Log.w(TAG, "Unable to apply stored locked focus on open", exception);
             return false;
+        }
+    }
+
+    private boolean applyManualFocusIfConfigured(UVCCamera uvcCamera) {
+        if (!isEffectiveManualFocusMode() || uvcCamera == null) {
+            return false;
+        }
+        int manualFocus = getPersistedManualFocus();
+        if (manualFocus <= 0) {
+            Log.i(TAG, "Manual focus mode is enabled but no reliable persisted manual focus is available");
+            return false;
+        }
+        try {
+            applyManualFocus(uvcCamera, manualFocus, false);
+            Log.i(TAG, "Applied persisted manual focus on open, focus=" + manualFocus);
+            return true;
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to apply persisted manual focus on open", exception);
+            return false;
+        }
+    }
+
+    private void applyManualFocus(UVCCamera uvcCamera, int focusPercent, boolean persist) throws Exception {
+        int clampedFocus = clampPercent(focusPercent);
+        if (clampedFocus <= 0) {
+            throw new IllegalArgumentException("Manual focus must be greater than 0");
+        }
+        cancelSmartAutoFocusLock();
+        prePhotoAutoFocusRequested = false;
+        prePhotoAutoFocusRetryCount = 0;
+        uvcCamera.setAutoFocus(false);
+        setPercentControlInternal(uvcCamera, clampedFocus, "Focus", "mFocusMin", "mFocusMax");
+        sessionFocusSettled = true;
+        if (persist) {
+            persistManualFocus(clampedFocus);
+            persistFocusMode(FOCUS_MODE_MANUAL);
+        }
+    }
+
+    private boolean isManualFocusModeEnabled() {
+        return FOCUS_MODE_MANUAL.equals(readPersistedFocusMode());
+    }
+
+    private boolean isEffectiveManualFocusMode() {
+        return isManualFocusModeEnabled() && getPersistedManualFocus() > 0;
+    }
+
+    private String readPersistedFocusMode() {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String mode = preferences.getString(PREF_FOCUS_MODE, FOCUS_MODE_AUTO);
+            return FOCUS_MODE_MANUAL.equalsIgnoreCase(mode) ? FOCUS_MODE_MANUAL : FOCUS_MODE_AUTO;
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to read persisted focus mode", exception);
+            return FOCUS_MODE_AUTO;
+        }
+    }
+
+    private void persistFocusMode(String mode) {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String normalizedMode = FOCUS_MODE_MANUAL.equalsIgnoreCase(mode) ? FOCUS_MODE_MANUAL : FOCUS_MODE_AUTO;
+            preferences.edit().putString(PREF_FOCUS_MODE, normalizedMode).apply();
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to persist focus mode", exception);
+        }
+    }
+
+    private void persistManualFocus(int focusPercent) {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            int clampedFocus = clampPercent(focusPercent);
+            if (clampedFocus <= 0) {
+                preferences.edit().remove(PREF_MANUAL_FOCUS).apply();
+                return;
+            }
+            preferences.edit().putInt(PREF_MANUAL_FOCUS, clampedFocus).apply();
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to persist manual focus", exception);
+        }
+    }
+
+    private int getPersistedManualFocus() {
+        try {
+            SharedPreferences preferences = cordova.getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            if (!preferences.contains(PREF_MANUAL_FOCUS)) {
+                return -1;
+            }
+            int savedFocus = clampPercent(preferences.getInt(PREF_MANUAL_FOCUS, 50));
+            if (savedFocus <= 0) {
+                preferences.edit().remove(PREF_MANUAL_FOCUS).apply();
+                return -1;
+            }
+            return savedFocus;
+        } catch (Exception exception) {
+            Log.w(TAG, "Unable to read persisted manual focus", exception);
+            return -1;
         }
     }
 
@@ -3114,8 +3232,21 @@ public class UsbUvcCamera extends CordovaPlugin {
                     return;
                 }
                 boolean enabled = args.optBoolean(0, true);
+                persistFocusMode(enabled ? FOCUS_MODE_AUTO : FOCUS_MODE_MANUAL);
                 uvcCamera.setAutoFocus(enabled);
-                callbackContext.success("ok");
+                if (!enabled) {
+                    int manualFocus = getPersistedManualFocus();
+                    if (manualFocus > 0) {
+                        applyManualFocus(uvcCamera, manualFocus, false);
+                    }
+                } else {
+                    sessionFocusSettled = false;
+                }
+                JSONObject result = new JSONObject();
+                result.put("autoFocus", enabled);
+                result.put("focusMode", enabled ? FOCUS_MODE_AUTO : FOCUS_MODE_MANUAL);
+                result.put("manualFocus", getPersistedManualFocus());
+                callbackContext.success(result);
             } catch (Exception exception) {
                 callbackContext.error("setAutoFocus failed: " + exception.getMessage());
             }
@@ -3124,6 +3255,17 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean refocus(JSONArray args, CallbackContext callbackContext) {
+        if (isManualFocusModeEnabled()) {
+            JSONObject result = new JSONObject();
+            try {
+                result.put("scheduled", false);
+                result.put("focusMode", FOCUS_MODE_MANUAL);
+                result.put("manualFocus", getPersistedManualFocus());
+            } catch (JSONException ignored) {
+            }
+            callbackContext.success(result);
+            return true;
+        }
         JSONObject options = args.optJSONObject(0);
         if (options != null) {
             smartFocusLockDelayMs = Math.max(300, options.optInt("focusLockDelayMs", smartFocusLockDelayMs));
@@ -3148,12 +3290,12 @@ public class UsbUvcCamera extends CordovaPlugin {
             }
             int value = clampPercent(args.optInt(0, 0));
             Log.i(TAG, "setFocus requestedPercent=" + value);
-            uvcCamera.setAutoFocus(false);
-            setPercentControlInternal(uvcCamera, value, "Focus", "mFocusMin", "mFocusMax");
+            applyManualFocus(uvcCamera, value, true);
             JSONObject result = new JSONObject();
             result.put("requested", value);
             result.put("applied", getPercentControlValue(uvcCamera, "Focus", "mFocusMin", "mFocusMax"));
             result.put("autoFocus", uvcCamera.getAutoFocus());
+            result.put("focusMode", FOCUS_MODE_MANUAL);
             callbackContext.success(result);
         } catch (Exception exception) {
             Log.e(TAG, "setFocus failed", exception);
