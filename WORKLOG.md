@@ -2317,3 +2317,28 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - implementato; il prossimo test dovra' mostrare:
   - eventuale log `Smart focus lock due time elapsed but lock is still running; delaying photo capture...`
   - assenza di casi in cui `Using raw preview frame directly for photo capture...` compaia prima della chiusura del ciclo autofocus
+
+## 2026-04-08 - Priorita' al valore focus stabile e attesa focus separata dai retry generali
+
+### Richiesta o problema
+
+- nei log piu' recenti sono emersi due comportamenti che potevano ancora peggiorare la nitidezza:
+  - con campioni come `samples=[6, 6, 2]` il plugin finiva per bloccare `focus=2`, cioe' l'ultimo valore letto, non quello stabile
+  - l'attesa del ciclo focus consumava anche i retry generali dello scatto, fino a casi come `Smart focus lock is still running after max retries; proceeding without extra wait`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- `observeFocusForLock(...)` ora, quando trova due campioni consecutivi coerenti, conserva quel valore stabile come candidato principale invece di sovrascriverlo con un campione finale degradato
+- l'attesa focus prima dello scatto non incrementa piu' il contatore generale dei retry di `attemptHighResTakePhoto(...)`
+- in questo modo il plugin puo' continuare ad aspettare la fine reale del focus senza "bruciarsi" il budget di retry pensato per problemi diversi (camera non aperta, preview non pronta, ecc.)
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare:
+  - assenza di lock palesemente peggiorativi come `focus=2` con campioni `samples=[6, 6, 2]`
+  - assenza del percorso `Smart focus lock is still running after max retries; proceeding without extra wait` nei casi normali
