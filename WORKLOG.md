@@ -2258,3 +2258,33 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
   - presenza di log come `Stored locked focus restored as initial hint; running autofocus refinement for image quality`
   - nuova passata `Starting smart focus cycle before photo capture...` ad ogni scatto
   - idealmente foto sensibilmente piu' a fuoco anche se con un piccolo ritardo in piu' prima dello scatto
+
+## 2026-04-08 - Webcam con telemetria focus assente: strategia blind autofocus
+
+### Richiesta o problema
+
+- i log successivi hanno mostrato che il plugin lancia davvero il refocus, ma la camera restituisce sempre:
+  - `reportedFocus=0`
+  - `samples=[0, 0, 0]`
+- questo significa che la metrica focus letta via UVC non e' affidabile per questo device, quindi i retry basati su quei campioni non aggiungono qualita' reale
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- introdotto il rilevamento di `focusReadbackUnavailable` quando tutte le letture focus restano a zero
+- in questo scenario il plugin:
+  - smette di inseguire retry basati su una telemetria inesistente
+  - passa a una strategia di `blind autofocus settle`
+  - usa una finestra di assestamento piu' lunga prima dello scatto (`BLIND_AUTO_FOCUS_SETTLE_MS`)
+  - mantiene autofocus attivo invece di congelare un focus assoluto dubbio
+
+### Stato finale
+
+- implementato; il prossimo test dovra' mostrare:
+  - log `Focus telemetry appears unavailable for this camera; using blind autofocus settle strategy`
+  - niente piu' catene lunghe di retry `samples=[0, 0, 0]`
+  - uno scatto che parte dopo un singolo tempo di assestamento piu' lungo
