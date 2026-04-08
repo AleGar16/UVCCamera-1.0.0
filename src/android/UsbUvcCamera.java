@@ -96,6 +96,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private ViewGroup previewContainer;
     private CallbackContext openCallback;
     private CallbackContext photoCallback;
+    private final Object photoCallbackLock = new Object();
     private int previewWidth = 1280;
     private int previewHeight = 720;
     private boolean preferHighestResolution = true;
@@ -179,6 +180,7 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     @Override
     public void onPause(boolean multitasking) {
+        resetCameraSessionState(true);
         if (cameraClient != null) {
             try {
                 cameraClient.unRegister();
@@ -313,6 +315,11 @@ public class UsbUvcCamera extends CordovaPlugin {
 
         Log.i(TAG, "open requested with width=" + previewWidth + ", height=" + previewHeight + ", preferHighestResolution=" + preferHighestResolution + ", preferMjpeg=" + preferMjpeg);
 
+        if (currentCamera != null || openingCamera || pendingOpenDevice != null || pendingCtrlBlock != null) {
+            Log.i(TAG, "Resetting stale UVC session before processing new open request");
+            resetCameraSessionState(true);
+        }
+
         openCallback = callbackContext;
         openingCamera = true;
         openRetryCount = 0;
@@ -409,14 +416,11 @@ public class UsbUvcCamera extends CordovaPlugin {
         cordova.getThreadPool().execute(() -> {
             prePhotoAutoFocusRequested = false;
             prePhotoAutoFocusRetryCount = 0;
-            photoCallback = callbackContext;
+            setPendingPhotoCallback(callbackContext);
             String fileName = "USB_UVC_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg";
             File baseDir = cordova.getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
             if (baseDir == null) {
-                callbackContext.error("External files directory not available");
-                photoCallback = null;
-                prePhotoAutoFocusRequested = false;
-                prePhotoAutoFocusRetryCount = 0;
+                failPendingPhoto("External files directory not available");
                 return;
             }
             File storageDir = new File(baseDir, "UsbUvcCamera");
@@ -503,19 +507,11 @@ public class UsbUvcCamera extends CordovaPlugin {
         cordova.getThreadPool().execute(() -> {
             try {
                 HighResPhotoResult result = backend.capture(currentDevice, request);
-                mainHandler.post(() -> {
-                    clearPhotoTimeout();
-                    prePhotoAutoFocusRequested = false;
-                    prePhotoAutoFocusRetryCount = 0;
-                    if (photoCallback != null) {
-                        photoCallback.success(result.getBase64Jpeg());
-                        photoCallback = null;
-                    }
-                });
+                resolvePendingPhotoSuccess(result.getBase64Jpeg());
             } catch (Exception exception) {
                 Log.w(TAG, "High-res backend failed, falling back to preview frame", exception);
                 mainHandler.post(() -> {
-                    if (photoCallback == null) {
+                    if (!hasPendingPhotoCallback()) {
                         Log.w(TAG, "Skipping preview fallback because photo callback has already been resolved");
                         return;
                     }
@@ -629,9 +625,39 @@ public class UsbUvcCamera extends CordovaPlugin {
         clearPhotoTimeout();
         prePhotoAutoFocusRequested = false;
         prePhotoAutoFocusRetryCount = 0;
-        if (photoCallback != null) {
-            photoCallback.error(message);
+        CallbackContext pendingCallback = consumePendingPhotoCallback();
+        if (pendingCallback != null) {
+            pendingCallback.error(message);
+        }
+    }
+
+    private void setPendingPhotoCallback(CallbackContext callbackContext) {
+        synchronized (photoCallbackLock) {
+            photoCallback = callbackContext;
+        }
+    }
+
+    private boolean hasPendingPhotoCallback() {
+        synchronized (photoCallbackLock) {
+            return photoCallback != null;
+        }
+    }
+
+    private CallbackContext consumePendingPhotoCallback() {
+        synchronized (photoCallbackLock) {
+            CallbackContext pendingCallback = photoCallback;
             photoCallback = null;
+            return pendingCallback;
+        }
+    }
+
+    private void resolvePendingPhotoSuccess(String encodedImage) {
+        clearPhotoTimeout();
+        prePhotoAutoFocusRequested = false;
+        prePhotoAutoFocusRetryCount = 0;
+        CallbackContext pendingCallback = consumePendingPhotoCallback();
+        if (pendingCallback != null) {
+            pendingCallback.success(encodedImage);
         }
     }
 
@@ -651,13 +677,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         }
         capturePreviewTextureAsBase64Async(textureCaptureWidth, textureCaptureHeight, textureEncodedImage -> {
             if (textureEncodedImage != null) {
-                clearPhotoTimeout();
-                prePhotoAutoFocusRequested = false;
-                prePhotoAutoFocusRetryCount = 0;
-                if (photoCallback != null) {
-                    photoCallback.success(textureEncodedImage);
-                    photoCallback = null;
-                }
+                resolvePendingPhotoSuccess(textureEncodedImage);
                 return;
             }
             encodeRawPreviewFrameFallback(frameCopy, frameSize, frameFromUnderlying, frameFormat);
@@ -692,20 +712,12 @@ public class UsbUvcCamera extends CordovaPlugin {
                     frameSize.getWidth(),
                     frameSize.getHeight()
             );
-            mainHandler.post(() -> {
-                if (encodedImage == null) {
-                    Log.e(TAG, "Preview frame base64 encoding failed");
-                    failPendingPhoto("Failed to encode preview frame");
-                    return;
-                }
-                clearPhotoTimeout();
-                prePhotoAutoFocusRequested = false;
-                prePhotoAutoFocusRetryCount = 0;
-                if (photoCallback != null) {
-                    photoCallback.success(encodedImage);
-                    photoCallback = null;
-                }
-            });
+            if (encodedImage == null) {
+                Log.e(TAG, "Preview frame base64 encoding failed");
+                failPendingPhoto("Failed to encode preview frame");
+                return;
+            }
+            resolvePendingPhotoSuccess(encodedImage);
         });
     }
 
@@ -738,7 +750,7 @@ public class UsbUvcCamera extends CordovaPlugin {
                 cordova.getThreadPool().execute(() -> {
                     try {
                         String encodedImage = encodeBitmapAsBase64(bitmap);
-                        mainHandler.post(() -> callback.onCaptured(encodedImage));
+                        callback.onCaptured(encodedImage);
                     } finally {
                         bitmap.recycle();
                     }
@@ -1565,11 +1577,10 @@ public class UsbUvcCamera extends CordovaPlugin {
                             configureUnderlyingPreviewStream(uvcCamera);
                             applyPreviewLayout();
                             boolean restoredFocus = applyStoredFocusIfAvailable(uvcCamera);
-                            if (!restoredFocus) {
-                                scheduleSmartAutoFocusLock("camera-opened");
-                            } else {
-                                Log.i(TAG, "Skipping camera-opened autofocus because stored locked focus was restored");
+                            if (restoredFocus) {
+                                Log.i(TAG, "Stored locked focus restored as initial hint; running autofocus refinement for image quality");
                             }
+                            scheduleSmartAutoFocusLock("camera-opened");
                             logBackendApiSnapshotOnce();
                         }
                         currentPreviewSizes = self.getAllPreviewSizes(null);
@@ -1647,6 +1658,17 @@ public class UsbUvcCamera extends CordovaPlugin {
         clearReconnect();
         cancelSmartAutoFocusLock();
         closeCurrentCamera(true);
+    }
+
+    private void resetCameraSessionState(boolean clearOpenCallback) {
+        releaseCamera();
+        pendingOpenDevice = null;
+        pendingCtrlBlock = null;
+        openingCamera = false;
+        openRetryCount = 0;
+        if (clearOpenCallback) {
+            openCallback = null;
+        }
     }
 
     private boolean isCurrentCameraOpenOrOpening() {
@@ -1813,14 +1835,11 @@ public class UsbUvcCamera extends CordovaPlugin {
     }
 
     private boolean shouldKeepAutoFocusEnabledAfterPulse(String reason, FocusLockObservation observation) {
-        return "photo-capture".equals(reason) && observation.chosenFocus <= 0;
+        return observation.chosenFocus <= 0 || !observation.stable;
     }
 
     private boolean maybePrepareSmartFocusBeforePhoto(int attempt, Runnable retryAction) {
         if (!smartFocusEnabled || !refocusBeforePhotoEnabled || retryAction == null) {
-            return false;
-        }
-        if (sessionFocusSettled) {
             return false;
         }
         if (pendingAutoFocusLock != null) {
@@ -1884,8 +1903,7 @@ public class UsbUvcCamera extends CordovaPlugin {
         try {
             uvcCamera.setAutoFocus(false);
             setPercentControlInternal(uvcCamera, savedFocus, "Focus", "mFocusMin", "mFocusMax");
-            sessionFocusSettled = true;
-            Log.i(TAG, "Applied stored locked focus on open, focus=" + savedFocus);
+            Log.i(TAG, "Applied stored locked focus hint on open, focus=" + savedFocus);
             return true;
         } catch (Exception exception) {
             Log.w(TAG, "Unable to apply stored locked focus on open", exception);
