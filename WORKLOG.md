@@ -2190,3 +2190,71 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 - implementato; il prossimo test dovra' mostrare:
   - eventuale refocus/calibrazione sui primi scatti
   - poi assenza di nuovi `Starting smart focus cycle before photo capture ...` sugli scatti successivi della stessa sessione
+
+## 2026-04-08 - Consegna foto Cordova fuori dal main thread
+
+### Richiesta o problema
+
+- dopo la fix del crash nativo e il passaggio al frame raw `NV21`, i log mostravano ancora:
+  - `Using raw preview frame directly for photo capture...`
+  - `YuvToJpegEncoder onFlyCompress`
+  - subito dopo `Skipped 32 frames! The application may be doing too much work on its main thread`
+- questo indicava che il collo di bottiglia residuo non era piu' `TextureView.getBitmap(...)`, ma il tratto finale della pipeline foto
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- centralizzata la risoluzione della callback foto con lock dedicato (`photoCallbackLock`)
+- introdotti helper per:
+  - registrare la callback pendente
+  - consumarla in modo atomico
+  - completare lo scatto con `success(...)` o `error(...)`
+- rimossa la consegna del base64 JPEG dal main thread nei percorsi:
+  - backend high-res
+  - fallback da preview raw `NV21`
+  - fallback da `TextureView`
+- il main thread resta usato per timeout, retry e operazioni UI, ma non piu' per inviare il payload immagine finale a Cordova
+
+### Stato finale
+
+- implementato; il prossimo test dovra' verificare che, durante lo scatto:
+  - restino i log `Using raw preview frame directly for photo capture...`
+  - non aumentino ulteriormente i `Skipped ... frames`
+  - idealmente il jank percepito durante il ritorno della foto al layer JavaScript si riduca in modo netto
+
+## 2026-04-08 - Qualita' focus prioritaria e riapertura app pulita
+
+### Richiesta o problema
+
+- l'utente ha segnalato che la foto resta fuori fuoco nonostante le ottimizzazioni precedenti
+- inoltre, dopo chiusura e riapertura app, l'inizializzazione camera si bloccava con log del tipo:
+  - `before openCamera`
+  - `Ignoring duplicate connect callback because camera is already active/opening`
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- alla riapertura, il plugin poteva conservare una sessione UVC precedente ancora marcata come attiva/apertura in corso:
+  - `onPause()` ora resetta esplicitamente la sessione camera prima di `unRegister()`
+  - `open()` ora forza un reset preventivo se trova `currentCamera`, `openingCamera` o pending open residue
+- sul focus, il plugin ora privilegia la nitidezza rispetto alla velocita':
+  - il focus persistito viene usato solo come hint iniziale all'apertura
+  - dopo l'open viene comunque rilanciata una passata di autofocus di raffinamento
+  - prima di ogni foto non si salta piu' il refocus solo perche' la sessione era gia' stata marcata come `settled`
+  - se la lettura focus non e' stabile, il plugin preferisce lasciare autofocus attivo invece di congelare un lock dubbio
+
+### Stato finale
+
+- implementato; il prossimo test dovra' verificare:
+  - assenza del blocco in riapertura con `Ignoring duplicate connect callback because camera is already active/opening`
+  - presenza di log come `Stored locked focus restored as initial hint; running autofocus refinement for image quality`
+  - nuova passata `Starting smart focus cycle before photo capture...` ad ogni scatto
+  - idealmente foto sensibilmente piu' a fuoco anche se con un piccolo ritardo in piu' prima dello scatto
