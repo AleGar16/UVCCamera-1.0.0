@@ -91,6 +91,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private static final int MAX_BLIND_AUTO_FOCUS_RETRIES = 1;
     private static final int PRE_PHOTO_AUTO_FOCUS_RETRY_DELAY_MS = 900;
     private static final int FOCUS_SIGNAL_RECOVERY_RETRY_DELAY_MS = 1400;
+    private static final int MANUAL_FOCUS_SETTLE_MS = 500;
     private static final int SMART_FOCUS_LOCK_SAMPLE_COUNT = 3;
     private static final int SMART_FOCUS_LOCK_SAMPLE_INTERVAL_MS = 120;
     private static final int SMART_FOCUS_LOCK_STABLE_DELTA = 2;
@@ -160,6 +161,7 @@ public class UsbUvcCamera extends CordovaPlugin {
     private int prePhotoAutoFocusRetryCount = 0;
     private long pendingAutoFocusLockDueElapsedMs = 0L;
     private long lastSmartFocusLockElapsedMs = 0L;
+    private long manualFocusReadyElapsedMs = 0L;
     private boolean focusReadbackUnavailable = false;
     private boolean loggedFocusReadbackUnavailable = false;
 
@@ -1889,6 +1891,16 @@ public class UsbUvcCamera extends CordovaPlugin {
 
     private boolean maybePrepareSmartFocusBeforePhoto(int attempt, Runnable retryAction) {
         if (isEffectiveManualFocusMode()) {
+            if (retryAction != null && manualFocusReadyElapsedMs > 0L) {
+                long remainingMs = manualFocusReadyElapsedMs - SystemClock.elapsedRealtime();
+                if (remainingMs > 0L) {
+                    long delayMs = Math.max(TAKE_PHOTO_RETRY_DELAY_MS, remainingMs);
+                    Log.i(TAG, "Manual focus settle still in progress; delaying photo capture, attempt="
+                            + attempt + ", delayMs=" + delayMs);
+                    mainHandler.postDelayed(retryAction, delayMs);
+                    return true;
+                }
+            }
             return false;
         }
         if (!smartFocusEnabled || !refocusBeforePhotoEnabled || retryAction == null) {
@@ -2031,6 +2043,9 @@ public class UsbUvcCamera extends CordovaPlugin {
         uvcCamera.setAutoFocus(false);
         setPercentControlInternal(uvcCamera, clampedFocus, "Focus", "mFocusMin", "mFocusMax");
         sessionFocusSettled = true;
+        manualFocusReadyElapsedMs = SystemClock.elapsedRealtime() + MANUAL_FOCUS_SETTLE_MS;
+        clearPersistedLockedFocus();
+        Log.i(TAG, "Manual focus applied, focus=" + clampedFocus + ", settleDelayMs=" + MANUAL_FOCUS_SETTLE_MS);
         if (persist) {
             persistManualFocus(clampedFocus);
             persistFocusMode(FOCUS_MODE_MANUAL);
