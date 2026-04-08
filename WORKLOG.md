@@ -42,6 +42,19 @@ Formato usato:
 - Stato:
   patch applicata nel codice Java del plugin; resta da validare su device reale che al prossimo open non compaia piu' il restore `focus=0` e che durante gli scatti il percorso texture non venga piu' usato quando il frame raw e' gia' high-res.
 
+### 1m. Crash `UnsatisfiedLinkError: libjpeg-turbo1500.so not found`
+
+- Richiesta/problema:
+  i log del 2026-04-08 10:05 mostravano un nuovo crash all'apertura UVC:
+  `java.lang.UnsatisfiedLinkError: dlopen failed: library "libjpeg-turbo1500.so" not found`
+  durante il `static initializer` di `com.serenegiant.usb.UVCCamera`.
+- Modifica fatta:
+  e' stato rigenerato `src/android/libs/libuvc-release.aar` del plugin usando entry ZIP normalizzate con separatori `/` invece di `\\`, mantenendo dentro tutte le librerie native `jni/arm64-v8a/*` e `jni/armeabi-v7a/*`, inclusa la `libUVCCamera.so` arm64 patchata.
+- Motivo tecnico:
+  il precedente repack dell'AAR era stato fatto su Windows con path ZIP nel formato `jni\\arm64-v8a\\...`; Android/Gradle non li interpretava correttamente come `jniLibs`, quindi al runtime `System.loadLibrary("UVCCamera")` non riusciva a risolvere la dipendenza `libjpeg-turbo1500.so`.
+- Stato:
+  AAR rigenerato con struttura ZIP valida (`jni/arm64-v8a/libjpeg-turbo1500.so`, `jni/arm64-v8a/libUVCCamera.so`, ecc.); resta da reinstallare/testare l'app per verificare che il crash `UnsatisfiedLinkError` non si ripresenti e che si torni ai log applicativi di apertura camera.
+
 ## 2026-04-01
 
 ### 0m. Guardia lifecycle durante `updateResolution(...)` di AUSBC
