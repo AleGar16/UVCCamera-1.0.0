@@ -2394,3 +2394,31 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il prossimo test dovra' mostrare, nei casi con `chosenFocus > 0` ma non stabile, retry con `retryDelayMs=1400` e piu' probabilita' di arrivare a un lock valido prima dello scatto
+
+## 2026-04-08 - Modalita' focus manuale persistita e separata dall'autofocus
+
+### Richiesta o problema
+
+- l'utente ha chiesto una modalita' con focus stabile e manuale, regolabile da app, ma senza toccare o perdere tutto il lavoro fatto sul ramo autofocus
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- introdotte preferenze persistite dedicate:
+  - `focusMode` con valori `auto` / `manual`
+  - `manualFocus` come percentuale focus fissa
+- il ramo manuale e' separato dal lock autofocus:
+  - `setFocus(...)` ora imposta direttamente modalita' `manual`, salva il valore e lo riapplica alle aperture successive
+  - `setAutoFocus(true)` riporta il plugin in modalita' `auto`
+  - `refocus()` in modalita' manuale non rilancia lo smart focus e restituisce `scheduled=false`
+- all'apertura camera:
+  - se c'e' una configurazione manuale valida, il plugin applica il focus fisso e salta l'autofocus di raffinamento
+  - se la modalita' manuale e' selezionata ma non c'e' ancora un valore valido, non rompe il ramo auto esistente
+
+### Stato finale
+
+- implementato; il plugin ora supporta un focus manuale persistito e reversibile senza cancellare o sovrascrivere la pipeline autofocus costruita fin qui
