@@ -2422,3 +2422,25 @@ Da ora in poi, a ogni modifica importante, questo file va aggiornato con:
 ### Stato finale
 
 - implementato; il plugin ora supporta un focus manuale persistito e reversibile senza cancellare o sovrascrivere la pipeline autofocus costruita fin qui
+
+## 2026-04-08 - Stabilizzazione del primo scatto dopo passaggio a focus manuale
+
+### Richiesta o problema
+
+- l'utente ha osservato che la prima foto risultava piu' nitida, mentre dalla seconda in poi il fuoco cambiava leggermente e poi restava stabile; il sospetto era un handoff tra il vecchio lock autofocus e il nuovo focus manuale
+
+### File toccati
+
+- `src/android/UsbUvcCamera.java`
+- `WORKLOG.md`
+
+### Spiegazione tecnica breve
+
+- quando viene applicato il focus manuale:
+  - il plugin ora pulisce il vecchio `lastLockedFocus` persistito, cosi' il lock autofocus precedente non resta come hint residuo
+  - viene impostata una breve finestra di assestamento (`MANUAL_FOCUS_SETTLE_MS = 500`)
+- prima dello scatto, se il plugin e' in modalita' manuale ma il settle non e' ancora finito, la cattura viene rimandata invece di partire subito
+
+### Stato finale
+
+- implementato; il primo scatto dopo `setFocus(...)` non dovrebbe piu' partire mentre il focus manuale sta ancora assestandosi, e i log attesi sono `Manual focus applied...` seguito, se necessario, da `Manual focus settle still in progress; delaying photo capture...`
